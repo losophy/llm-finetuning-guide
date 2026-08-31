@@ -5,6 +5,8 @@
 
 使用 LoRA 和 QLoRA 在 Python 中微调大语言模型。本完整指南涵盖内存计算、PEFT 配置、4-bit QLoRA、Adapter 合并以及常见错误——全部附带可运行的代码。
 
+> 📂 **配套代码：** 本指南每个代码块都有对应的可运行脚本，存放在本仓库的 `llm-lora-qlora-finetuning-guide/` 目录下，代码块上方均标注了对应文件，复制对应脚本即可直接运行。注意：配套脚本针对本地 trl 1.12 / transformers 5.x 环境做了参数适配（如 `max_length`、`warmup_steps`、`loss_type="nll"`、`processing_class`），与文中按 trl 0.8 API 书写的代码略有差异，功能等价。
+
 ---
 
 GPT-4 不懂你公司的内部词汇。Llama 3 无法回答关于你私有数据集的问题。完全重新训练需要数万 GPU 小时，成本远超大多数团队的预算。
@@ -42,6 +44,8 @@ pip install torch transformers peft trl bitsandbytes datasets accelerate
 - **完成时间：** 60 分钟
 
 ---
+
+> 📄 **对应代码文件：** [check_gpu.py](llm-lora-qlora-finetuning-guide/check_gpu.py) —— 本教程的全部导入与 GPU 环境检查
 
 ```python
 # 本教程的全部导入——先运行这个单元
@@ -89,6 +93,8 @@ GPU memory: 24.0 GB
 全参数微调是选项 1。LoRA 是选项 2。
 
 内存问题非常具体。让我们为一个 70 亿参数的模型算一下——这是当下微调实验最常见的规模。
+
+> 📄 **对应代码文件：** [lora_vs_full_finetune_memory_calculator.py](llm-lora-qlora-finetuning-guide/lora_vs_full_finetune_memory_calculator.py) —— 计算全参数微调 vs LoRA 所需 GPU 内存
 
 ```python
 # 计算全参数微调 vs LoRA 所需的 GPU 内存
@@ -179,6 +185,8 @@ LoRA 的洞见：你不需要改变全部 1670 万个数值。你只需要改变
 
 下面的模拟具体展示了这一点。注意参数数量的缩减，并理解为什么 B 必须从零开始。
 
+> 📄 **对应代码文件：** [lora_svd_simulation.py](llm-lora-qlora-finetuning-guide/lora_svd_simulation.py) —— 用 numpy 模拟 LoRA 的低秩分解
+
 ```python
 # 用 numpy 模拟 LoRA 的低秩分解
 np.random.seed(42)
@@ -227,6 +235,8 @@ print(f"  参数缩减: {delta_W_full.size / (A_trained.size + B_trained.size):.
 **`target_modules`** ——哪些权重矩阵挂上 LoRA adapter。针对所有线性层（Q、K、V、O，加上 MLP 门控）一贯优于只针对 Q 和 V [4]。额外的内存开销微乎其微，质量提升却是实实在在的。在看到全层覆盖带来的持续改进后，我不再只针对 Q+V。
 
 听起来很熟悉？大多数教程仍然只推荐 Q+V。那是原始论文的做法。此后的实验证据明确指向全层覆盖。
+
+> 📄 **对应代码文件：** [lora_parameter_counter.py](llm-lora-qlora-finetuning-guide/lora_parameter_counter.py) —— LoRA 秩与目标模块选择对可训练参数数量的影响
 
 ```python
 # LoRA 秩和目标选择如何影响可训练参数数量
@@ -288,6 +298,8 @@ Llama 2 13B 模型的参数为：`hidden_dim = 5120`、`intermediate_dim = 13824
 *提示 1：复制该函数并更新顶部的三个维度常量。*
 *提示 2：预期结果低于总参数的 1%。*
 
+> 📄 **参考实现：** [count_lora_params_llama13b.py](llm-lora-qlora-finetuning-guide/count_lora_params_llama13b.py) —— 练习 1 的参考答案（13B 模型 LoRA 参数统计）
+
 ```python
 # 练习 1：统计 Llama 2 13B 的 LoRA 参数
 hidden_dim_13b = ___
@@ -326,6 +338,8 @@ print(f"LoRA 占比: {total_lora / total_model * 100:.2f}%")
 
 我们用 `bfloat16` 精度加载——内存只有 `float32` 的一半，数值稳定性还优于 `float16`。`device_map="auto"` 参数会自动把模型放到 GPU 上，必要时还能跨多张 GPU 拆分。
 
+> 📄 **对应代码文件：** [opt-125m-lora-sandbox.py](llm-lora-qlora-finetuning-guide/opt-125m-lora-sandbox.py) —— 加载基础模型和分词器（流程验证用）
+
 ```python
 model_name = "facebook/opt-125m"  # 生产环境换成 "meta-llama/Llama-3.1-8B"
 
@@ -357,6 +371,8 @@ print(f"模型精度: {next(model.parameters()).dtype}")
 对于指令微调，每条训练样本需要一对"提示词-回答"，并格式化为单个文本字符串。SFTTrainer 会自动在损失中屏蔽提示词 token，让模型学习*生成回答*，而不是复制提示词。
 
 自有数据最简单的格式：一个带 `text` 列的 CSV，每行包含完整的对话。下面的代码展示了如何把原始的问答列表转换成这种格式，然后加载一个预格式化好的示例数据集。
+
+> 📄 **对应代码文件：** [prepare_sft_dataset.py](llm-lora-qlora-finetuning-guide/prepare_sft_dataset.py) —— 数据格式化与数据集加载
 
 ```python
 # 把你自己的原始数据转换成 SFTTrainer 格式
@@ -398,6 +414,8 @@ print(dataset[0]["text"][:250])
 
 注意应用 LoRA 后参数数量的变化。从 1.25 亿可训练参数降到不到 80 万，这就是效率提升的实际体现。
 
+> 📄 **对应代码文件：** [lora_config_example.py](llm-lora-qlora-finetuning-guide/lora_config_example.py) —— 完整版为 Qwen2-7B 配置 LoRA 的示例（含 ModelScope 本地模型加载）
+
 ```python
 lora_config = LoraConfig(
     r=16,
@@ -432,6 +450,8 @@ trainable params: 786,432 || all params: 125,983,744 || trainable%: 0.6242
 SFTTrainer 处理指令微调的整套流程：提示词/回答屏蔽、序列打包，以及与 PEFT 的干净集成。
 
 关键训练参数：`num_train_epochs`（1–3 是标准；更多容易过拟合）、`gradient_accumulation_steps`（模拟更大的批次：有效批次 = `batch_size × 该值`）、`learning_rate`（2e-4 是 LoRA 微调可靠的起始点）。
+
+> 📄 **对应代码文件：** [lora_finetune_opt.py](llm-lora-qlora-finetuning-guide/lora_finetune_opt.py) —— OPT-125M 完整 LoRA 微调脚本（含数据加载、训练）
 
 ```python
 training_args = SFTConfig(
@@ -468,6 +488,8 @@ LoRA 只保存 adapter 权重——而不是整个模型。对于 rank=16 的 OP
 
 训练后做一个快速健全性检查：比较模型在测试提示词上微调前后的回答。如果输出在你的任务上有明显改进，说明训练生效了。
 
+> 📄 **对应代码文件：** [lora_finetune_opt_save_adapter.py](llm-lora-qlora-finetuning-guide/lora_finetune_opt_save_adapter.py) —— LoRA 微调 + 保存 adapter（约 3 MB）
+
 ```python
 # 只保存 adapter（很小）
 adapter_save_path = "./opt-125m-lora-adapter"
@@ -485,6 +507,8 @@ print(f"Adapter 已保存: {adapter_size_mb:.1f} MB  (完整模型约 250 MB)")
 ```python
 Adapter 已保存: 3.1 MB  (完整模型约 250 MB)
 ```
+
+> 📄 **对应代码文件：** [lora_finetune_opt_evaluate.py](llm-lora-qlora-finetuning-guide/lora_finetune_opt_evaluate.py) —— 加载 adapter 并生成回答进行快速评估
 
 ```python
 # 加载 adapter 并快速评估
@@ -542,6 +566,8 @@ QLoRA 的配置几乎和 LoRA 完全一样。唯一的改动是在加载模型�
 
 加载量化模型后必须额外加两行代码。`use_cache = False` 禁用 KV 缓存，因为它与梯度检查点（gradient checkpointing）冲突。`enable_input_require_grads()` 确保梯度能穿过量化模型流入 LoRA adapter。忘了任何一个都会在训练时产生令人困惑的错误。
 
+> 📄 **对应代码文件：** [qlora_config_example.py](llm-lora-qlora-finetuning-guide/qlora_config_example.py) —— QLoRA 配置 + 4-bit 模型加载
+
 ```python
 # QLoRA 第 1 步：配置 4-bit 量化
 bnb_config = BitsAndBytesConfig(
@@ -570,6 +596,8 @@ print(f"模型权重精度: {next(model_qlora.parameters()).dtype}")
 模型以 4-bit 精度加载
 模型权重精度: torch.uint8
 ```
+
+> 📄 **对应代码文件：** [qlora_finetune_opt.py](llm-lora-qlora-finetuning-guide/qlora_finetune_opt.py) —— QLoRA 完整微调脚本（4-bit 加载 + LoRA + paged_adamw_32bit 训练）
 
 ```python
 # QLoRA 第 3 步：应用 LoRA——与标准 LoRA 配置完全相同
@@ -625,6 +653,8 @@ trainable params: 786,432 || all params: 125,983,744 || trainable%: 0.6242
 > )
 > ```
 
+> 📄 **对应代码文件：** [qlora_finetune_opt_flash_attn.py](llm-lora-qlora-finetuning-guide/qlora_finetune_opt_flash_attn.py) —— QLoRA + 高效注意力（SDPA / Flash Attention 2）完整训练脚本
+
 ## [动手练习] 练习 2：为 Llama 3.1 8B 配置 QLoRA
 
 你想在客服数据集上微调 `meta-llama/Llama-3.1-8B-Instruct`。目标模块：`q_proj`、`k_proj`、`v_proj`、`o_proj`、`gate_proj`、`up_proj`、`down_proj`。
@@ -668,6 +698,8 @@ print(f"target_modules: {sorted(qlora_config_llama.target_modules)}")
 对于生产部署，你可以把 adapter 永久烘焙进基础模型。`merge_and_unload()` 会为每个适配层计算 W* = W + (α / r) · B · A 并存储结果。输出是一个标准的 HuggingFace 模型——没有 PEFT 包装器，没有运行时开销。
 
 有一个限制要知道：你不能直接合并到 QLoRA 模型上。4-bit 基础模型的权重精度不足以胜任合并运算。先把基础模型用 bfloat16 重新加载，然后再合并。
+
+> 📄 **对应代码文件：** [lora_merge_adapter.py](llm-lora-qlora-finetuning-guide/lora_merge_adapter.py) —— 将 LoRA adapter 合并进基础模型
 
 ```python
 # 以全精度重新加载基础模型
@@ -829,6 +861,8 @@ lora_config_buggy = LoraConfig(
 ## 完整代码
 
 点击展开完整脚本（复制粘贴即可运行）
+
+> 📄 **对应代码文件：** [finetune_llm_with_lora_and_qlora.py](llm-lora-qlora-finetuning-guide/finetune_llm_with_lora_and_qlora.py) —— LoRA + QLoRA 端到端微调完整脚本（含 HF 镜像源设置）
 
 ```python
 # 完整代码：使用 LoRA 和 QLoRA 在 Python 中微调 LLM
