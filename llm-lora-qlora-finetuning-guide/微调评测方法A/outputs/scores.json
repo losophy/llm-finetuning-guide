@@ -1,0 +1,551 @@
+{
+  "meta": {
+    "model": "qwen3-max-2026-01-23",
+    "base_url": "https://ws-j3tmps32rwyxqb9l.cn-beijing.maas.aliyuncs.com/compatible-mode/v1",
+    "rubric": "0-5",
+    "judge": "blind",
+    "empty_as_zero": true
+  },
+  "items": [
+    {
+      "id": 0,
+      "ft_score": 1,
+      "ft_follows": true,
+      "ft_comment": "The answer is severely off-topic; LoRA in this context refers to Low-Rank Adaptation for efficient model fine-tuning, not a web application platform. The content is incorrect and repetitive, but it do",
+      "base_score": 0,
+      "base_follows": false,
+      "base_comment": "The answer is unrelated to the question about LoRA and instead contains an automated bot message."
+    },
+    {
+      "id": 1,
+      "base_score": 0,
+      "base_follows": true,
+      "base_comment": "The answer is completely unrelated to QLoRA as a machine learning technique; it falsely describes QLoRA as an IoT platform by NIST, which is incorrect. However, the instruction had no hard constraints",
+      "ft_score": 1,
+      "ft_follows": true,
+      "ft_comment": "The answer is severely off-topic and contains fabricated, irrelevant information about QLoRA being a 'Q-based algorithm' for general data analysis, which is incorrect. QLoRA is a parameter-efficient f"
+    },
+    {
+      "id": 2,
+      "ft_score": 1,
+      "ft_follows": true,
+      "ft_comment": "The answer is severely off-topic and does not explain the actual difference between LoRA and full fine-tuning; it repeats vague, identical statements that apply equally to both methods and miss the co",
+      "base_score": 1,
+      "base_follows": false,
+      "base_comment": "The model answer is severely off-topic, repetitive, and fails to address the question about LoRA vs full fine-tuning. It does not provide any relevant technical content or follow the implicit instruct"
+    },
+    {
+      "id": 3,
+      "ft_score": 1,
+      "ft_follows": true,
+      "ft_comment": "The answer is severely off-topic and repetitive, failing to address why quantization is used in fine-tuning LLMs; however, it technically responds to the instruction (no hard constraints like word lim",
+      "base_score": 0,
+      "base_follows": false,
+      "base_comment": "The model answer is garbled and consists of repeated fragments of the question without providing any actual response or explanation."
+    },
+    {
+      "id": 4,
+      "ft_score": 1,
+      "ft_follows": true,
+      "ft_comment": "The answer is severely off-topic and factually incorrect—low-rank matrices in LoRA have nothing to do with computing logarithms. However, it does attempt to explain the role (no hard format constraint",
+      "base_score": 2,
+      "base_follows": true,
+      "base_comment": "The answer is vague and does not correctly explain the role of low-rank matrices in LoRA; it misses the core idea that they approximate weight updates via a product of two small matrices. However, it "
+    },
+    {
+      "id": 5,
+      "base_score": 0,
+      "base_follows": false,
+      "base_comment": "The model answer is completely unrelated to the instruction, which asks for an explanation of freezing model weights during fine-tuning. Instead, it lists repetitive and irrelevant questions about mod",
+      "ft_score": 1,
+      "ft_follows": false,
+      "ft_comment": "The answer is severely off-topic and does not address what freezing model weights means during fine-tuning."
+    },
+    {
+      "id": 6,
+      "base_score": 1,
+      "base_follows": true,
+      "base_comment": "The answer is severely off-topic; it defines a generic AI program rather than explaining what an epoch is in machine learning.",
+      "ft_score": 1,
+      "ft_follows": false,
+      "ft_comment": "The answer is severely off-topic—it defines 'machine learning' instead of 'epoch' and contains repetitive, irrelevant content."
+    },
+    {
+      "id": 7,
+      "ft_score": 1,
+      "ft_follows": true,
+      "ft_comment": "The answer is severely off-topic and does not correctly explain what a loss function is; it repeats vague and irrelevant statements about 'number of points' with no connection to machine learning or m",
+      "base_score": 0,
+      "base_follows": false,
+      "base_comment": "The model answer is garbled and does not provide any actual explanation of a loss function; it repeats the question multiple times instead of answering."
+    },
+    {
+      "id": 8,
+      "base_score": 1,
+      "base_follows": true,
+      "base_comment": "The answer is severely off-topic and uninformative, repeating tautological phrases without explaining what a tokenizer actually does. However, it does attempt to answer the open-ended question, so it ",
+      "ft_score": 1,
+      "ft_follows": true,
+      "ft_comment": "The answer is severely off-topic; it incorrectly describes a tokenizer as a system for storing tokens in a database, which is unrelated to its actual role in NLP of splitting text into tokens and conv"
+    },
+    {
+      "id": 9,
+      "base_score": 0,
+      "base_follows": false,
+      "base_comment": "empty answer -> 0 by rubric",
+      "ft_score": 0,
+      "ft_follows": false,
+      "ft_comment": "empty answer -> 0 by rubric"
+    },
+    {
+      "id": 10,
+      "ft_score": 1,
+      "ft_follows": true,
+      "ft_comment": "The answer is severely off-topic, describing a physical/material process instead of the machine learning technique; however, it does attempt to answer the question in prose form with no hard constrain",
+      "base_score": 1,
+      "base_follows": true,
+      "base_comment": "The answer is severely off-topic and uninformative, repeating uncertainty instead of explaining gradient accumulation, but it does attempt to address the question (no hard constraints violated)."
+    },
+    {
+      "id": 11,
+      "base_score": 0,
+      "base_follows": false,
+      "base_comment": "The model output is garbled and repetitive, failing to provide a coherent or relevant answer to the question.",
+      "ft_score": 1,
+      "ft_follows": true,
+      "ft_comment": "The answer is severely off-topic and repetitive, failing to correctly explain what an optimizer is in the context of machine learning; however, it does attempt to answer the question, so it follows th"
+    },
+    {
+      "id": 12,
+      "base_score": 1,
+      "base_follows": true,
+      "base_comment": "The answer is severely off-topic, misdefining training and evaluation loss as psychological confidence rather than machine learning metrics. However, it does attempt to address the prompt (no hard con",
+      "ft_score": 1,
+      "ft_follows": false,
+      "ft_comment": "The answer is severely off-topic, misdefining both training and evaluation loss in a non-technical, incorrect way, and includes irrelevant repetitive bullet points. It fails to address the machine lea"
+    },
+    {
+      "id": 13,
+      "base_score": 1,
+      "base_follows": true,
+      "base_comment": "The model repeats the question instead of providing an answer; content is severely off-topic though instruction format was followed.",
+      "ft_score": 1,
+      "ft_follows": true,
+      "ft_comment": "The answer is severely off-topic and does not correctly explain what a learning rate scheduler is; it repeats vague, generic phrases unrelated to machine learning or training dynamics."
+    },
+    {
+      "id": 14,
+      "ft_score": 1,
+      "ft_follows": true,
+      "ft_comment": "The answer is severely off-topic and repetitive; it misdefines a checkpoint as a 'system that processes data' rather than a saved model state, but the instruction had no hard constraints beyond answer",
+      "base_score": 1,
+      "base_follows": true,
+      "base_comment": "The answer is severely off-topic and incorrect—it confuses 'model training' with a literal train/trainee metaphor. However, it does attempt to answer the question in a free-form way, and since the ins"
+    },
+    {
+      "id": 15,
+      "base_score": 0,
+      "base_follows": false,
+      "base_comment": "The model answer does not list any advantages of LoRA; instead, it repeatedly mentions listing disadvantages and fails to provide any actual content relevant to the instruction.",
+      "ft_score": 1,
+      "ft_follows": true,
+      "ft_comment": "The answer lists three items as instructed, but all content is incorrect—LoRA is not an operating system, and the points are repetitive and irrelevant to actual LoRA (Low-Rank Adaptation) advantages."
+    },
+    {
+      "id": 16,
+      "base_score": 1,
+      "base_follows": false,
+      "base_comment": "The model answer repeats the question instead of providing a one-sentence definition.",
+      "ft_score": 1,
+      "ft_follows": false,
+      "ft_comment": "Answer is severely off-topic, repeats incorrect definitions, and is not one sentence."
+    },
+    {
+      "id": 17,
+      "base_score": 1,
+      "base_follows": false,
+      "base_comment": "Answer is repetitive, exceeds 15 words, and fails to correctly define overfitting.",
+      "ft_score": 0,
+      "ft_follows": false,
+      "ft_comment": "Answer is garbled, repetitive, and completely incorrect; also exceeds 15 words."
+    },
+    {
+      "id": 18,
+      "base_score": 0,
+      "base_follows": false,
+      "base_comment": "The model output is garbled and does not reply with only 'Yes' or 'No' as instructed.",
+      "ft_score": 0,
+      "ft_follows": false,
+      "ft_comment": "Answer is completely incorrect, off-topic, and violates the instruction to reply with only 'Yes' or 'No'."
+    },
+    {
+      "id": 19,
+      "ft_score": 0,
+      "ft_follows": false,
+      "ft_comment": "The answer is garbled and unrelated; it does not name two hyperparameters nor start with the required phrase.",
+      "base_score": 0,
+      "base_follows": false,
+      "base_comment": "empty answer -> 0 by rubric"
+    },
+    {
+      "id": 20,
+      "ft_score": 0,
+      "ft_follows": false,
+      "ft_comment": "The model output is repetitive, incomplete, and fails to actually complete the sentence as instructed. It merely repeats the prompt without providing a meaningful completion.",
+      "base_score": 0,
+      "base_follows": false,
+      "base_comment": "The model output is garbled, repetitive, and does not complete the sentence about gradient descent."
+    },
+    {
+      "id": 21,
+      "base_score": 0,
+      "base_follows": false,
+      "base_comment": "empty answer -> 0 by rubric",
+      "ft_score": 0,
+      "ft_follows": false,
+      "ft_comment": "Answer is garbled, lists irrelevant items (Ruby), exceeds two items, and does not name actual machine learning libraries."
+    },
+    {
+      "id": 22,
+      "base_score": 0,
+      "base_follows": false,
+      "base_comment": "The model answer repeats the question multiple times instead of providing a one-sentence answer, violating the instruction to answer in one sentence.",
+      "ft_score": 1,
+      "ft_follows": false,
+      "ft_comment": "Answer is off-topic, discusses physical exercise instead of machine learning data splitting, and is not one sentence."
+    },
+    {
+      "id": 23,
+      "ft_score": 0,
+      "ft_follows": false,
+      "ft_comment": "empty answer -> 0 by rubric",
+      "base_score": 0,
+      "base_follows": false,
+      "base_comment": "Answer is garbled and unrelated; fails to define 'batch' in under 15 words."
+    },
+    {
+      "id": 24,
+      "ft_score": 1,
+      "ft_follows": false,
+      "ft_comment": "Answer is off-topic, verbose, and does not reply with only 'Yes' or 'No' as instructed.",
+      "base_score": 0,
+      "base_follows": false,
+      "base_comment": "The answer is completely unrelated and does not reply with only 'Yes' or 'No' as instructed."
+    },
+    {
+      "id": 25,
+      "ft_score": 1,
+      "ft_follows": false,
+      "ft_comment": "Answer is off-topic, repetitive, and not a single word evaluation metric as required.",
+      "base_score": 0,
+      "base_follows": false,
+      "base_comment": "empty answer -> 0 by rubric"
+    },
+    {
+      "id": 26,
+      "base_score": 1,
+      "base_follows": false,
+      "base_comment": "The answer repeats 'A seed is' many times without providing any actual explanation, failing to address the question content and violating the implicit expectation of a coherent response.",
+      "ft_score": 2,
+      "ft_follows": true,
+      "ft_comment": "Answer starts correctly with 'A seed is' but content is incorrect and repetitive; a random seed is not a random variable nor used to predict program futures, and the answer deviates into unrelated tex"
+    },
+    {
+      "id": 27,
+      "ft_score": 1,
+      "ft_follows": false,
+      "ft_comment": "The answer is severely off-topic, repetitive, and fails to complete the sentence meaningfully or accurately; it does not address the purpose of a validation set in machine learning.",
+      "base_score": 0,
+      "base_follows": false,
+      "base_comment": "The answer is unrelated to the instruction and does not complete the sentence about the validation set."
+    },
+    {
+      "id": 28,
+      "base_score": 0,
+      "base_follows": false,
+      "base_comment": "The model output is repetitive, incomplete, and does not provide two fine-tuning names as required.",
+      "ft_score": 1,
+      "ft_follows": false,
+      "ft_comment": "Answer is off-topic, verbose, and does not name two kinds of model fine-tuning as required."
+    },
+    {
+      "id": 29,
+      "ft_score": 0,
+      "ft_follows": false,
+      "ft_comment": "The model repeats the sentence many times and truncates it at the end, violating the instruction to say it exactly once.",
+      "base_score": 0,
+      "base_follows": false,
+      "base_comment": "The model did not say the required sentence; it gave an unrelated response."
+    },
+    {
+      "id": 30,
+      "ft_score": 2,
+      "ft_follows": true,
+      "ft_comment": "Answer starts correctly but then includes irrelevant, repetitive, and confusing content (e.g., 'perfect balance', repeated phrase 'full fine-tuning' in a question), failing to give a clear brief expla",
+      "base_score": 1,
+      "base_follows": false,
+      "base_comment": "The answer is severely off-topic and appears to be repetitive nonsense claiming full fine-tuning is high-speed, which contradicts the correct fact that LoRA is faster. It also fails to provide a brief"
+    },
+    {
+      "id": 31,
+      "base_score": 1,
+      "base_follows": false,
+      "base_comment": "The model output repeats the instruction instead of providing an answer, so it fails to address the question or provide justification.",
+      "ft_score": 0,
+      "ft_follows": false,
+      "ft_comment": "empty answer -> 0 by rubric"
+    },
+    {
+      "id": 32,
+      "ft_score": 0,
+      "ft_follows": false,
+      "ft_comment": "The answer is completely unrelated to the instruction, confusing bf16 with the Brainfuck programming language, and fails to provide any meaningful comparison between bf16 and fp16.",
+      "base_score": 0,
+      "base_follows": false,
+      "base_comment": "Answer is completely unrelated to the instruction and contains irrelevant, off-topic statements."
+    },
+    {
+      "id": 33,
+      "base_score": 0,
+      "base_follows": false,
+      "base_comment": "The answer is garbled and unrelated to the question about LoRA; it repeats 'I'm a scientist' instead of addressing whether base model weights need updating.",
+      "ft_score": 0,
+      "ft_follows": false,
+      "ft_comment": "The answer is completely unrelated to LoRA (Low-Rank Adaptation) in machine learning, instead discussing a fictional Earth model. It fails to address the question and contains nonsensical content."
+    },
+    {
+      "id": 34,
+      "base_score": 2,
+      "base_follows": false,
+      "base_comment": "The answer identifies the correct object (LoRA adapter) but fails to provide a brief explanation as required by the instruction. Repetition and lack of reasoning make it incomplete.",
+      "ft_score": 1,
+      "ft_follows": false,
+      "ft_comment": "The answer is severely off-topic, confusing LoRA (Low-Rank Adaptation in machine learning) with a fictional 'LoRA 4K display system' and repeating irrelevant phrases. It fails to address the size comp"
+    },
+    {
+      "id": 35,
+      "base_score": 1,
+      "base_follows": false,
+      "base_comment": "The answer repeats the question multiple times without providing a correct or coherent explanation; it fails to address the instruction.",
+      "ft_score": 1,
+      "ft_follows": false,
+      "ft_comment": "Answer is off-topic, repetitive, and does not address whether training or inference needs more memory."
+    },
+    {
+      "id": 36,
+      "base_score": 1,
+      "base_follows": false,
+      "base_comment": "The answer is off-topic and does not address the question about memory usage of batch sizes; it also fails to provide the required explanation.",
+      "ft_score": 0,
+      "ft_follows": false,
+      "ft_comment": "empty answer -> 0 by rubric"
+    },
+    {
+      "id": 37,
+      "base_score": 0,
+      "base_follows": false,
+      "base_comment": "empty answer -> 0 by rubric",
+      "ft_score": 0,
+      "ft_follows": false,
+      "ft_comment": "empty answer -> 0 by rubric"
+    },
+    {
+      "id": 38,
+      "base_score": 0,
+      "base_follows": false,
+      "base_comment": "The model output is a long sequence of asterisks with no actual answer, making it empty/garbled and unrelated to the instruction.",
+      "ft_score": 1,
+      "ft_follows": false,
+      "ft_comment": "The answer is severely incorrect and repetitive; it falsely claims gradients are computed during inference, contradicting the reference. It also fails to provide a brief explanation as instructed."
+    },
+    {
+      "id": 39,
+      "ft_score": 1,
+      "ft_follows": false,
+      "ft_comment": "The answer is severely off-topic, repetitive, and fails to address which model finishes faster or explain why. It also does not follow the implicit constraint of providing a brief explanation.",
+      "base_score": 1,
+      "base_follows": false,
+      "base_comment": "The answer is completely off-topic, discussing CPUs instead of GPU fine-tuning of language models, and fails to address the question or provide a relevant explanation."
+    },
+    {
+      "id": 40,
+      "base_score": 0,
+      "base_follows": false,
+      "base_comment": "The answer is garbled and repetitive, not a formal rewrite of the sentence.",
+      "ft_score": 0,
+      "ft_follows": false,
+      "ft_comment": "The model answer is repetitive and does not provide a rewritten sentence in a more formal tone; it merely repeats the original sentence multiple times."
+    },
+    {
+      "id": 41,
+      "base_score": 1,
+      "base_follows": false,
+      "base_comment": "The model output does not rewrite the sentence as a question; instead, it includes irrelevant bot text and fails to perform the requested task.",
+      "ft_score": 0,
+      "ft_follows": false,
+      "ft_comment": "The model repeated the original statement instead of rewriting it as a question."
+    },
+    {
+      "id": 42,
+      "base_score": 0,
+      "base_follows": false,
+      "base_comment": "The model output is a string of asterisks, not a shortened version of the given text.",
+      "ft_score": 0,
+      "ft_follows": false,
+      "ft_comment": "The model output is completely unrelated to the instruction and appears to be a list of repeated phrases with no attempt to shorten the given text."
+    },
+    {
+      "id": 43,
+      "ft_score": 1,
+      "ft_follows": false,
+      "ft_comment": "The model answer completely misunderstands LoRA (it is not a GPU) and fails to rewrite the sentence to start with 'By using LoRA'. Instead, it repeats an incorrect statement multiple times and adds ir",
+      "base_score": 1,
+      "base_follows": false,
+      "base_comment": "The model answer does not start with 'By using LoRA' and completely changes the meaning of the original sentence instead of rephrasing it."
+    },
+    {
+      "id": 44,
+      "base_score": 0,
+      "base_follows": false,
+      "base_comment": "The model answer is empty/garbled and does not provide a rewritten sentence.",
+      "ft_score": 1,
+      "ft_follows": false,
+      "ft_comment": "The model answer does not rewrite the sentence in simpler words; instead, it adds unrelated commentary and questions, completely ignoring the instruction."
+    },
+    {
+      "id": 45,
+      "base_score": 0,
+      "base_follows": false,
+      "base_comment": "empty answer -> 0 by rubric",
+      "ft_score": 0,
+      "ft_follows": false,
+      "ft_comment": "The model answer is completely unrelated to the instruction, does not rewrite the sentence in passive voice, and instead repeats an incorrect and irrelevant description of 'LoRA adapter'."
+    },
+    {
+      "id": 46,
+      "base_score": 1,
+      "base_follows": false,
+      "base_comment": "The model repeated the original sentence multiple times instead of rewriting it as a command; fails to follow the instruction.",
+      "ft_score": 0,
+      "ft_follows": false,
+      "ft_comment": "The model output is garbled and does not rewrite the sentence as a command; it repeats irrelevant phrases instead."
+    },
+    {
+      "id": 47,
+      "ft_score": 1,
+      "ft_follows": false,
+      "ft_comment": "The model answer completely misinterprets the instruction. Instead of rephrasing 'Give me the training results' politely, it fabricates a list of unrelated, repetitive statements about being a profess",
+      "base_score": 0,
+      "base_follows": false,
+      "base_comment": "The model output is garbled, off-topic, and does not attempt to rephrase the given sentence politely."
+    },
+    {
+      "id": 48,
+      "base_score": 1,
+      "base_follows": false,
+      "base_comment": "The model answer is off-topic, repetitive, and fails to combine the two given sentences into one coherent sentence as instructed.",
+      "ft_score": 1,
+      "ft_follows": false,
+      "ft_comment": "The model failed to combine the two sentences into one; instead, it repeated the original sentences and added unrelated text. The output does not satisfy the core instruction."
+    },
+    {
+      "id": 49,
+      "base_score": 0,
+      "base_follows": false,
+      "base_comment": "The model output is completely unrelated to the instruction and does not rewrite the sentence starting with 'Although'.",
+      "ft_score": 0,
+      "ft_follows": false,
+      "ft_comment": "The model answer does not start with 'Although' and appears to be a repeated, incomplete copy of the original sentence, failing to follow the core instruction."
+    },
+    {
+      "id": 50,
+      "ft_score": 1,
+      "ft_follows": false,
+      "ft_comment": "The answer is off-topic—it discusses CPU cores and threads instead of GPU memory reduction techniques, and provides six repetitive points instead of one tip with explanation.",
+      "base_score": 1,
+      "base_follows": false,
+      "base_comment": "Answer is off-topic, repetitive, includes irrelevant bot message, and does not provide a valid tip or explanation about reducing GPU memory during fine-tuning."
+    },
+    {
+      "id": 51,
+      "ft_score": 1,
+      "ft_follows": false,
+      "ft_comment": "The answer is severely off-topic, does not provide a valid hyperparameter or typical value for LoRA, and appears repetitive and incoherent. It fails to follow the instruction.",
+      "base_score": 1,
+      "base_follows": false,
+      "base_comment": "The answer is repetitive, incomplete, and fails to provide an actual example of a hyperparameter or its typical value in LoRA."
+    },
+    {
+      "id": 52,
+      "base_score": 0,
+      "base_follows": false,
+      "base_comment": "The model output is repetitive and does not provide a valid answer; it merely repeats the prompt instead of answering the question in one sentence.",
+      "ft_score": 1,
+      "ft_follows": false,
+      "ft_comment": "Answer is off-topic, repetitive, and not a single sentence addressing the risk of fine-tuning on a small dataset."
+    },
+    {
+      "id": 53,
+      "ft_score": 1,
+      "ft_follows": false,
+      "ft_comment": "The answer is severely off-topic, confusing 'training loss' in machine learning with physical muscle mass loss. It also lists repetitive, irrelevant items instead of addressing the actual issue.",
+      "base_score": 1,
+      "base_follows": false,
+      "base_comment": "The model answer repeats the question instead of providing an actual response, making it severely off-topic."
+    },
+    {
+      "id": 54,
+      "ft_score": 1,
+      "ft_follows": false,
+      "ft_comment": "The instruction asks for one piece of advice with an explanation, but the answer gives eight repetitive points and misinterprets 'language model' as 'foreign language learning'. It completely misses t",
+      "base_score": 0,
+      "base_follows": false,
+      "base_comment": "The answer is completely unrelated to fine-tuning language models and instead repeats irrelevant points about Python syntax. It fails to provide any relevant advice or explanation."
+    },
+    {
+      "id": 55,
+      "base_score": 1,
+      "base_follows": false,
+      "base_comment": "The model answer repeats the question instead of providing a response, so it is nearly empty in content and fails to follow the instruction to answer in one sentence.",
+      "ft_score": 1,
+      "ft_follows": false,
+      "ft_comment": "The answer is repetitive, does not provide the required content, and fails to be a single coherent sentence as instructed."
+    },
+    {
+      "id": 56,
+      "base_score": 1,
+      "base_follows": false,
+      "base_comment": "The model answer is off-topic and consists of repetitive dialogue snippets instead of providing a solution to reduce repetition in generation.",
+      "ft_score": 1,
+      "ft_follows": false,
+      "ft_comment": "The model answer is severely off-topic and repetitive, failing to address the instruction about fixing repetitive generation in fine-tuned models. It also does not provide a valid suggestion like the "
+    },
+    {
+      "id": 57,
+      "base_score": 0,
+      "base_follows": false,
+      "base_comment": "The model output is a list of irrelevant dialogue snippets and does not provide any reason related to evaluating fine-tuned models. It completely ignores the instruction.",
+      "ft_score": 1,
+      "ft_follows": false,
+      "ft_comment": "The model answer lists multiple questions instead of providing one reason, completely ignoring the instruction's requirement."
+    },
+    {
+      "id": 58,
+      "ft_score": 0,
+      "ft_follows": false,
+      "ft_comment": "The model answer is completely off-topic and does not address the question; it merely repeats 'Write a sentence.' multiple times instead of providing a brief answer about what to record before publish",
+      "base_score": 1,
+      "base_follows": false,
+      "base_comment": "The answer is severely off-topic, repetitive, and does not address what should be recorded before publishing experiment numbers. It also fails to answer briefly as instructed."
+    },
+    {
+      "id": 59,
+      "base_score": 0,
+      "base_follows": false,
+      "base_comment": "empty answer -> 0 by rubric",
+      "ft_score": 1,
+      "ft_follows": false,
+      "ft_comment": "The answer is off-topic, repeats incorrect claims (QLoRA is not a baseline but an advanced method), and is not one sentence."
+    }
+  ]
+}

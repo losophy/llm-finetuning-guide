@@ -1,7 +1,8 @@
 # -*- coding: utf-8 -*-
 """
 生成评测集 evalset/test.jsonl (位于脚本所在目录)
-用法: python create_testset.py            # 生成默认 30 条
+当前 TEST_SET 内置 60 条 (A 概念解释 15 / B 指令遵循 15 / C 判断比较 10 / D 改写润色 10 / E 简短建议 10)
+用法: python create_testset.py            # 生成 60 条
       python create_testset.py --out 自定义路径.jsonl
 """
 import argparse
@@ -9,39 +10,75 @@ import json
 import os
 
 TEST_SET = [
-    # ---------- A. 概念解释类 (6/15) ----------
+    # ---------- A. 概念解释类 (15 条) ----------
     {"category": "concept", "instruction": "What is LoRA?", "reference": "LoRA is a parameter-efficient fine-tuning method that injects low-rank matrices into frozen model weights, so only a tiny fraction of parameters are trained."},
     {"category": "concept", "instruction": "How does QLoRA work?", "reference": "QLoRA combines 4-bit quantization of the base model with LoRA adapters trained in 16-bit precision, cutting memory usage by about 75 percent."},
     {"category": "concept", "instruction": "What is the difference between LoRA and full fine-tuning?", "reference": "Full fine-tuning updates every weight of the model, while LoRA only updates small injected low-rank matrices and keeps the base model frozen."},
     {"category": "concept", "instruction": "Why do we use quantization when fine-tuning large language models?", "reference": "Quantization reduces the memory footprint of model weights, for example from 16-bit to 4-bit, so larger models fit on limited GPU memory."},
     {"category": "concept", "instruction": "Explain the role of the low-rank matrices in LoRA.", "reference": "The low-rank matrices approximate the weight update. Instead of learning a large matrix W, LoRA learns two small matrices A and B whose product AB represents the change."},
     {"category": "concept", "instruction": "What does it mean to freeze model weights during fine-tuning?", "reference": "Freezing means the base weights are not updated by the optimizer. Only the newly added parameters, such as LoRA matrices, receive gradient updates."},
+    {"category": "concept", "instruction": "What is an epoch in machine learning?", "reference": "An epoch is one complete pass over the entire training dataset, after which the model has seen every training example once."},
+    {"category": "concept", "instruction": "What is a loss function?", "reference": "A loss function measures how far the model's prediction is from the correct answer, and training is the process of minimizing it."},
+    {"category": "concept", "instruction": "What does a tokenizer do?", "reference": "A tokenizer splits raw text into tokens and maps them to numeric ids, so the text becomes a sequence the model can process."},
+    {"category": "concept", "instruction": "What does it mean to merge a LoRA adapter into the base model?", "reference": "Merging adds the trained low-rank weight updates into the base weights, so the model can run without loading the adapter separately."},
+    {"category": "concept", "instruction": "What is gradient accumulation?", "reference": "Gradient accumulation collects gradients over several small batches and applies one optimizer update, simulating a larger batch size with less memory."},
+    {"category": "concept", "instruction": "What is an optimizer?", "reference": "An optimizer, such as AdamW, updates the trainable parameters using the gradients computed from the loss."},
+    {"category": "concept", "instruction": "What is the difference between training loss and evaluation loss?", "reference": "Training loss measures how well the model fits the training data, while evaluation loss is computed on held-out data and better reflects generalization."},
+    {"category": "concept", "instruction": "What is a learning rate scheduler?", "reference": "A learning rate scheduler adjusts the learning rate during training, usually decreasing it over time so the model converges more steadily."},
+    {"category": "concept", "instruction": "What is a checkpoint in model training?", "reference": "A checkpoint is a saved snapshot of the model weights, and sometimes the optimizer state, so training can resume or the model can be reused later."},
 
-    # ---------- B. 指令遵循·格式约束类 (6/15) ----------
+    # ---------- B. 指令遵循·格式约束类 (15 条) ----------
     {"category": "instruction", "instruction": "List three advantages of LoRA.", "reference": "Three advantages: 1) much lower memory and storage cost; 2) training is fast because few parameters update; 3) adapters are small and easy to swap or deploy."},
     {"category": "instruction", "instruction": "Answer in one sentence: what is a learning rate?", "reference": "The learning rate controls how large a step the optimizer takes when updating parameters."},
     {"category": "instruction", "instruction": "Define overfitting in fewer than 15 words.", "reference": "A model performs well on training data but poorly on new data."},
     {"category": "instruction", "instruction": "Reply with only Yes or No: Is QLoRA a 4-bit quantized way of fine-tuning?", "reference": "Yes."},
     {"category": "instruction", "instruction": "Name two hyperparameters used in fine-tuning. Start your answer with 'Two hyperparameters are'.", "reference": "Two hyperparameters are learning rate and batch size."},
     {"category": "instruction", "instruction": "Complete the sentence: 'Gradient descent is a method to ...'", "reference": "Gradient descent is a method to iteratively minimize a loss function by moving parameters in the direction of the negative gradient."},
+    {"category": "instruction", "instruction": "List two Python libraries used in machine learning. Format your answer as '1) ...' and '2) ...'.", "reference": "1) PyTorch 2) scikit-learn."},
+    {"category": "instruction", "instruction": "Answer in one sentence: why do we split data into training and test sets?", "reference": "We split data so that the model is evaluated on examples it has never seen during training."},
+    {"category": "instruction", "instruction": "Define what a batch is in fewer than 15 words.", "reference": "A group of training examples processed together before one weight update."},
+    {"category": "instruction", "instruction": "Is overfitting harmful when we want a model to generalize? Reply with only Yes or No.", "reference": "Yes."},
+    {"category": "instruction", "instruction": "Name one evaluation metric for classification models. Answer in one word.", "reference": "Accuracy."},
+    {"category": "instruction", "instruction": "Start your answer with 'A seed is': What is a random seed in machine learning?", "reference": "A seed is a number that makes random operations, such as data shuffling, reproducible."},
+    {"category": "instruction", "instruction": "Complete the sentence: 'The validation set is used to ...'", "reference": "The validation set is used to check how well the model performs on new data during training."},
+    {"category": "instruction", "instruction": "Name two kinds of model fine-tuning. Answer with only the two names separated by a comma.", "reference": "Full fine-tuning, LoRA."},
+    {"category": "instruction", "instruction": "Say exactly the following sentence: 'LoRA keeps the base model frozen.'", "reference": "LoRA keeps the base model frozen."},
 
-    # ---------- C. 判断比较类 (4/10) ----------
+    # ---------- C. 判断比较类 (10 条) ----------
     {"category": "compare", "instruction": "Which is faster to train, LoRA or full fine-tuning? Explain briefly.", "reference": "LoRA is faster because it updates only a small number of parameters, so computation and memory are much lower than updating the whole model."},
     {"category": "compare", "instruction": "Is a larger LoRA rank r always better? Justify briefly.", "reference": "No. A larger r increases capacity but also trainable parameters and memory. If r is too large, LoRA approaches full fine-tuning cost with diminishing benefits."},
     {"category": "compare", "instruction": "Compare bf16 and fp16 in two short points.", "reference": "1) bf16 has the same exponent range as fp32, so it is more stable in training; 2) fp16 has less range but more precision on small values, and may need loss scaling."},
     {"category": "compare", "instruction": "Do we need to update the base model weights in LoRA? Answer and explain.", "reference": "No. In LoRA the base weights stay frozen; only the injected low-rank matrices are trained, which is why it is called parameter-efficient."},
+    {"category": "compare", "instruction": "Which is smaller, a LoRA adapter or the whole base model? Explain briefly.", "reference": "The LoRA adapter is much smaller, because it stores only the trained low-rank matrices while the base model stores all the original weights."},
+    {"category": "compare", "instruction": "Do you need more memory for training or for inference of the same model? Explain briefly.", "reference": "Training needs more memory, because it also keeps gradients and optimizer states, while inference only runs forward passes."},
+    {"category": "compare", "instruction": "Is a small batch or a large batch more memory-hungry for one optimizer step? Explain briefly.", "reference": "A large batch uses more memory, because more examples are processed and their gradients are kept at the same time."},
+    {"category": "compare", "instruction": "Which needs more GPU memory, a 1-billion-parameter model or a 100-million-parameter model? Explain briefly.", "reference": "The 1-billion-parameter model, because it stores about ten times as many weights as the 100-million-parameter model."},
+    {"category": "compare", "instruction": "Do we compute gradients during inference? Explain briefly.", "reference": "No. During inference the model only runs forward passes to produce output, so gradients are not needed."},
+    {"category": "compare", "instruction": "Which finishes faster on the same GPU, fine-tuning a 125M model or a 7B model? Explain briefly.", "reference": "The 125M model, because it has far fewer parameters, so every forward and backward pass is much cheaper."},
 
-    # ---------- D. 改写润色类 (4/10) ----------
+    # ---------- D. 改写润色类 (10 条) ----------
     {"category": "rewrite", "instruction": "Rewrite this sentence in a more formal tone: 'The model is very big.'", "reference": "The model has a very large number of parameters."},
     {"category": "rewrite", "instruction": "Rewrite this sentence as a question: 'LoRA saves GPU memory.'", "reference": "Does LoRA save GPU memory?"},
     {"category": "rewrite", "instruction": "Make this text shorter: 'Fine-tuning a large language model requires a lot of GPU memory because every parameter is updated during training.'", "reference": "Fine-tuning large models is memory-hungry because all parameters are updated."},
     {"category": "rewrite", "instruction": "Change this sentence to start with 'By using LoRA': 'We can fine-tune a 7B model on one GPU.'", "reference": "By using LoRA, we can fine-tune a 7B model on one GPU."},
+    {"category": "rewrite", "instruction": "Rewrite this sentence in simpler words: 'The model exhibits suboptimal performance on unseen data.'", "reference": "The model does not work well on new data."},
+    {"category": "rewrite", "instruction": "Rewrite this sentence in the passive voice: 'We trained the LoRA adapter on one GPU.'", "reference": "The LoRA adapter was trained on one GPU."},
+    {"category": "rewrite", "instruction": "Rewrite this sentence as a command: 'You should always freeze the base model when using LoRA.'", "reference": "Always freeze the base model when using LoRA."},
+    {"category": "rewrite", "instruction": "Make this sentence more polite: 'Give me the training results.'", "reference": "Could you please share the training results?"},
+    {"category": "rewrite", "instruction": "Combine these two sentences into one: 'LoRA is efficient. It trains only a few parameters.'", "reference": "LoRA is efficient because it trains only a few parameters."},
+    {"category": "rewrite", "instruction": "Rewrite this sentence starting with 'Although': 'LoRA is lightweight, but it still achieves good quality.'", "reference": "Although LoRA is lightweight, it still achieves good quality."},
 
-    # ---------- E. 简短建议生成类 (4/10) ----------
+    # ---------- E. 简短建议生成类 (10 条) ----------
     {"category": "advice", "instruction": "Give one tip to reduce GPU memory usage when fine-tuning, and explain why it helps.", "reference": "Use 4-bit quantization (QLoRA). It shrinks base weights from 16-bit to 4-bit, cutting memory by about 75 percent with little quality loss."},
     {"category": "advice", "instruction": "Give an example of a hyperparameter and a typical value used in LoRA.", "reference": "Learning rate, for example 2e-4, is a typical hyperparameter used when training LoRA adapters."},
     {"category": "advice", "instruction": "What is one risk of fine-tuning on a very small dataset? Answer in one sentence.", "reference": "The model may overfit and memorize the few examples instead of learning a general behavior."},
     {"category": "advice", "instruction": "What should you check first when the training loss does not decrease?", "reference": "Check the learning rate and whether gradients are actually flowing to the trainable parameters, for example by verifying that only LoRA weights require gradients."},
+    {"category": "advice", "instruction": "Give one piece of advice to a beginner who wants to start fine-tuning language models, and explain why.", "reference": "Start with a small model and a small dataset, so the whole pipeline is fast to run and easy to debug before scaling up."},
+    {"category": "advice", "instruction": "You want to compare two hyperparameter settings fairly. What should you keep identical? Answer in one sentence.", "reference": "Keep the dataset, prompt template, random seed, and evaluation set identical, and change only the hyperparameter you are testing."},
+    {"category": "advice", "instruction": "Your fine-tuned model repeats the same phrase over and over when generating. What is one thing you can try?", "reference": "Try changing the decoding settings, such as lowering the temperature or adding a repetition penalty, so the output becomes less repetitive."},
+    {"category": "advice", "instruction": "Give one reason to evaluate a fine-tuned model on unseen questions instead of on training questions.", "reference": "Unseen questions show whether the model can generalize to new inputs, while training questions only test memorization."},
+    {"category": "advice", "instruction": "What should you record before publishing experiment numbers? Answer briefly.", "reference": "Record the model, dataset, random seed, and evaluation scripts, so the results can be reproduced by others."},
+    {"category": "advice", "instruction": "Why is it useful to train a strong baseline before trying advanced methods like QLoRA? Answer in one sentence.", "reference": "A baseline shows how much the advanced method actually improves over a simple approach."},
 ]
 
 def main():

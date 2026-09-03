@@ -51,11 +51,12 @@ llm-lora-qlora-finetuning-guide/
 ├─ lora_finetune_opt.py 等训练脚本
 └─ 微调评测方法A/                          ← 本指南全部文件所在文件夹
    ├─ 微调评测方法A_自建评测集与LLM打分指南.md
-   ├─ create_testset.py                   ← ① 建评测集 → evalset/test.jsonl（24 条起步，目标 60）
+   ├─ create_testset.py                   ← ① 建评测集 → evalset/test.jsonl（当前 60 条）
    ├─ eval_generate.py                    ← ② 批量推理 base vs 微调模型
    │                                        ├─ outputs/base.jsonl
    │                                        └─ outputs/ft.jsonl
    ├─ eval_judge.py                       ← ③ LLM 盲评打分 → outputs/scores.json
+   ├─ .env                                (API 密钥: LLM_* 或 DEEPSEEK_API_KEY, ③ 自动读取)
    ├─ eval_report.py                      ← ④ 出报告 → outputs/eval_report.md
    ├─ evalset/test.jsonl                  （脚本生成，指令 + reference）
    └─ outputs/                            （脚本生成，jsonl / 报告留档）
@@ -95,17 +96,17 @@ llm-lora-qlora-finetuning-guide/
 
 > 想让简历项目看起来更"业务向"，可把 A/E 类换成你真正的目标场景（如"把日志改写成 XX 风格"），题型结构不变，只换题干。
 
-### 3.3 评测集文件 `evalset/test.jsonl`（24 条起步示例）
+### 3.3 评测集文件 `evalset/test.jsonl`（当前 60 条）
 
-用文件夹内的 `create_testset.py` 生成（产物在脚本所在目录的 `evalset/test.jsonl`）。**先跑默认 24 条验证全流程，跑通后再扩到 60 条**（每类续写同风格题目即可，尽量别让题目之间相似度过高）。
+用文件夹内的 `create_testset.py` 生成（产物在脚本所在目录的 `evalset/test.jsonl`）。**`TEST_SET` 已按 3.2 表的分配内置满 60 条**（A 15 / B 15 / C 10 / D 10 / E 10）。（起步阶段曾先用 24 条试跑验证全流程，跑通后才补齐到 60——先小批验证、再放量的节奏便于调试与校准题目难度。）
 
 > **引用脚本 `create_testset.py`**（与本文同目录）
-> - 做什么：内置 24 条示例题（5 类各 4-6 条，对应 3.2 表题型）→ 逐条写成 `{"id","category","instruction","reference"}` 的 `evalset/test.jsonl`
-> - 运行：`python create_testset.py`（默认 24 条）；自定义输出 `python create_testset.py --out 路径.jsonl`
-> - 完整题目清单见生成的 `evalset/test.jsonl`；**扩题/改题 = 编辑脚本内 `TEST_SET` 列表**，保存后重跑即可覆盖
+> - 做什么：内置 60 条示例题（5 类分布 A 15 / B 15 / C 10 / D 10 / E 10，对应 3.2 表题型）→ 逐条写成 `{"id","category","instruction","reference"}` 的 `evalset/test.jsonl`
+> - 运行：`python create_testset.py`（当前 60 条）；自定义输出 `python create_testset.py --out 路径.jsonl`
+> - 完整题目清单见生成的 `evalset/test.jsonl`；**换题/扩量 = 编辑脚本内 `TEST_SET` 列表**，保存后重跑即可覆盖
 
 
-**扩到 60 条**：按各类别同风格续写（A+9、B+9、C+6、D+6、E+6，共 36 条）。注意：
+**若要换题 / 扩到 100+ 条**（如把 A/E 类换成业务向题目、或扩量增加统计稳定性）——编辑 `TEST_SET` 后重跑 ① 即可，注意：
 - 同一概念别问 N 遍相似问法，换知识点；
 - B 类硬约束要**明确、可机械判定**（"三点""Yes/No""少于 15 词""以 XX 开头"），judge 才好判"遵循了没有"；
 - 完成后自查一遍：**确保任意一条都不等于训练数据里的原句**。
@@ -152,17 +153,18 @@ llm-lora-qlora-finetuning-guide/
   - 0 = 空回答 / 乱码 / 与问题无关
 - **follows_instruction（true/false）**：只看**硬性约束**是否照做（三点、一句话、Yes/No、词数、以 XX 开头等）；题目没有硬约束时一律判 true。**内容对错不计入此布尔值**（对错已体现在分数里）。
 
-### 5.3 打分脚本 `eval_judge.py`（DeepSeek 示例，OpenAI 兼容）
+### 5.3 打分脚本 `eval_judge.py`（OpenAI 兼容，支持 DeepSeek / 百炼 qwen 等）
 
 > **引用脚本 `eval_judge.py`**（与本文同目录），LLM-as-judge 盲评打分：
 > - 读取 `outputs/base.jsonl` + `outputs/ft.jsonl`；5.2 的 rubric 已写死在脚本 `JUDGE_SYSTEM` 中随 prompt 发给裁判
-> - **盲评**：base/ft 全部答案打乱顺序（固定洗牌种子）逐条送裁判，裁判不知道谁是谁；返回 0-5 分数 + `follows_instruction`
+> - **盲评**：base/ft 全部答案打乱顺序（固定洗牌种子）逐条送裁判，裁判不知道谁是谁；返回 0-5 分数 + `follows_instruction` + 裁判 `comment`（存盘供审计）
+> - **空答案直接记 0 分、不送 API**：模型未产出内容即视为 0 分（rubric 中 empty=0）。实测若把空串直接发给裁判，部分裁判会误评高分（曾把空答案评为 5 分），故脚本对空答案短路处理，不消耗调用
 > - 单条调用失败自动重试 3 次，仍失败记为 `-1`（出报告时剔除）
-> - 产物：`outputs/scores.json`
+> - 产物：`outputs/scores.json`（meta 记录实际使用的 model / base_url，留作复现口径）
 >
-> 运行：
-> 1. 设环境变量 `DEEPSEEK_API_KEY`（Windows PowerShell：`$env:DEEPSEEK_API_KEY="sk-..."`）
-> 2. `python eval_judge.py`（`--model` / `--base-url` 可换任意 OpenAI 兼容接口，如本地 vLLM）
+> 运行（密钥放同目录 `.env`，脚本自动读取，无需每次设环境变量）：
+> 1. 在 `.env` 填好密钥——认 `LLM_API_KEY`/`LLM_MODEL_NAME`/`LLM_BASE_URL`（OpenAI 兼容网关通用）或 `DEEPSEEK_API_KEY`（DeepSeek 官方）；本文件夹已带一份可直接用的 `.env`
+> 2. `python eval_judge.py`（`--model` / `--base-url` 显式传参会覆盖 .env；无 .env 时默认 DeepSeek：`deepseek-chat` + `api.deepseek.com/v1`）
 > 3. 成本约 2×题数 次调用（60 题约 120 次），通常不足 1 元
 
 
@@ -206,7 +208,7 @@ llm-lora-qlora-finetuning-guide/
 - 答：评测集 60 条全部为评测阶段新写，未出现在训练集；题型/语言/难度刻意贴近训练分布以测"迁移到同类任务"的能力，但题干均不同源。可当场打开 `evalset/test.jsonl` 与训练脚本对照。
 
 **Q2：分数是谁打的？怎么保证公平？**
-- 答：DeepSeek 作裁判，0-5 固定 rubric（可复述）；base 与 ft 答案**打乱盲评**，裁判不知道谁是谁；生成阶段两模型共用同一 prompt 模板、同解码参数、固定随机种子。产物 `outputs/base.jsonl` / `outputs/ft.jsonl` / `scores.json` 全程留档（均在 `微调评测方法A/outputs/`），可复跑复现。
+- 答：强 LLM 作裁判（本流程经 `.env` 配置的 OpenAI 兼容接口调用，如百炼 qwen3-max-preview；换 DeepSeek 只需改 .env/传参），0-5 固定 rubric（可复述，写死在 `eval_judge.py` 的 JUDGE_SYSTEM）；base 与 ft 答案**打乱盲评**，裁判不知道谁是谁；生成阶段两模型共用同一 prompt 模板、同解码参数、固定随机种子。产物 `outputs/base.jsonl` / `outputs/ft.jsonl` / `scores.json`（meta 记录了实际 judge 模型）全程留档（均在 `微调评测方法A/outputs/`），可复跑复现。
 
 **Q3：为什么用 opt-125m？这个分数能说明什么？**
 - 口径：opt-125m 用于**端到端验证 LoRA/QLoRA 流程与评测方法论**（125M 参数，训练分钟级，迭代快）；评测分数体现的是"同题对比下微调带来的相对提升"，绝对值受模型容量限制。若要更强的说服力，同样的评测集与脚本可直接套到 Qwen2-7B/更大模型（仓库 `qwen2-7b-lora` 目录即 7B 链路）。切勿把 125m 的分数包装成 7B 级能力。
@@ -236,14 +238,14 @@ llm-lora-qlora-finetuning-guide/
 ```sh
 # 全部命令在 微调评测方法A/ 文件夹内执行 (脚本按自身位置自动定位路径)
 
-# ① 生成评测集(默认 24 条, 扩到 60 条后重新运行即可覆盖)
+# ① 生成评测集(当前 60 条; 改题后重跑即覆盖 evalset/test.jsonl)
 python create_testset.py
 
 # ② base 与 ft 同题生成 (产物 outputs/base.jsonl, outputs/ft.jsonl)
 python eval_generate.py
 
-# ③ LLM 盲评打分 (先 export DEEPSEEK_API_KEY=sk-...)
-# Windows PowerShell: $env:DEEPSEEK_API_KEY="sk-..."
+# ③ LLM 盲评打分 (密钥放同目录 .env, 认 LLM_API_KEY 或 DEEPSEEK_API_KEY)
+# 默认走 .env 网关(qwen3-max-preview); 想用 DeepSeek: python eval_judge.py --model deepseek-chat --base-url https://api.deepseek.com/v1
 python eval_judge.py
 
 # ④ 出报告 (产物 outputs/eval_report.md)
@@ -255,6 +257,8 @@ python eval_report.py
 | base 模型下载失败 | 脚本已设 `HF_ENDPOINT=https://hf-mirror.com`；仍失败检查网络代理 |
 | 生成全是空串/重复字 | 题对 125m 太难或温度过低；把 `temperature` 提到 0.7、加 `repetition_penalty`，或换更简单的题 |
 | judge 频繁失败 / 限流 | 调大 `time.sleep` 间隔；换 `--base-url`（如兼容网关）；失败 3 次的记录标 -1 会在报告中剔除 |
+| 提示"未找到 API Key" | 在脚本同目录 `.env` 填 `DEEPSEEK_API_KEY` 或 `LLM_API_KEY`（不带引号）；或设同名环境变量 |
+| 想换裁判模型/换 DeepSeek | 直接改 `.env` 的 `LLM_MODEL_NAME`/`LLM_BASE_URL`，或运行时 `--model` / `--base-url` 覆盖 |
 | 想换成中文场景 | 换训练数据与评测题语言后全流程不变；但 opt-125m 中文能力弱，不建议拿它出中文数字 |
 | 想把评测集扩到 100 条 | 每类按 3.3 风格续写，注意去重与难度，勿引入训练集原句 |
 | 想让数字更有说服力 | 用同一套评测集/脚本跑 7B（如仓库 `Qwen2-7B` 链路），分数绝对值与提升都会更可观 |

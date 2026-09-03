@@ -3,7 +3,7 @@
 读取脚本所在目录 outputs/scores.json + evalset/test.jsonl, 计算指标, 输出 outputs/eval_report.md
 用法: python eval_report.py
 """
-import json, argparse, os
+import json, argparse, os, datetime
 from collections import defaultdict
 
 def avg(xs): return sum(xs) / len(xs) if xs else float("nan")
@@ -17,7 +17,9 @@ def main():
     ap.add_argument("--out", default=os.path.join(out_dir, "eval_report.md"))
     args = ap.parse_args()
 
-    items  = json.load(open(args.scores, encoding="utf-8"))["items"]
+    data   = json.load(open(args.scores, encoding="utf-8"))
+    items  = data["items"]
+    meta   = data.get("meta", {})
     cats   = {d["id"]: d["category"] for d in map(json.loads, open(args.testset, encoding="utf-8"))}
 
     valid = [it for it in items if it["base_score"] >= 0 and it["ft_score"] >= 0]
@@ -38,9 +40,11 @@ def main():
         sub = [i for i in valid if cats[i["id"]] == c]
         by_cat[c] = metric(sub)
 
+    today = datetime.date.today().isoformat()
+    judge = meta.get("model", "__填写__")
     lines = ["# 微调评测报告 (方法A: 自建评测集 + LLM 打分)", "",
-             f"- 日期: __填写__ | 设备: __填写__ | 评测模型: base=`facebook/opt-125m` vs ft=`opt-125m-merged`",
-             f"- 有效条数: {overall['n']} | judge: __填写(如 deepseek-chat)__ | 打分: 0-5 盲评", "",
+             f"- 日期: {today} | 设备: __填写__ | 评测模型: base=`facebook/opt-125m` vs ft=`opt-125m-merged`",
+             f"- 有效条数: {overall['n']} | judge: {judge} | 打分: 0-5 盲评 | 空答案按 0 分计", "",
              "## 总指标", "",
              "| 指标 | base | ft | 提升 |",
              "|---|---|---|---|",
