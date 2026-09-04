@@ -1,10 +1,73 @@
 # Unsloth 微调实战指南（第3-6周）
 
+> **运行方式**：本机 8GB 能跑的 → 本机跑（只调 batch/seq 参数，不降模型档次）；8GB 跑不了的 → Google Colab 免费 T4 跑原版 Notebook（代码零改动）。判定方法见下节「运行方式」。
+>
 > **学习目标**：掌握 Unsloth 微调框架，能够独立完成 Qwen2.5 模型的微调与部署
 >
-> **适用硬件**：NVIDIA GPU（6GB+ VRAM，推荐 24GB）
+> **适用硬件**：NVIDIA GPU 8GB（如 RTX 4060 Ti）；8GB 跑不了的模型用 Google Colab 免费 T4（≈15GB），网络不稳备选 Kaggle 免费额度
 >
 > **前置知识**：已掌握 LoRA/QLoRA 基础理论（参见 `LoRA与QLoRA微调大语言模型完整指南.md`）
+
+---
+
+## 运行方式：本机 8GB 与 Google Colab T4 怎么选
+
+> **一条原则**：8GB 显存能跑的在本机跑（只调 batch/seq，不降模型档次）；8GB 跑不了的上 Google Colab 免费 T4 跑原版 Notebook，代码零改动。本文代码示例均为标准写法，本机运行时按本节参数调整即可。
+
+### 1. 显存门槛：判断该在哪跑
+
+Unsloth 官方给出的 **QLoRA(4-bit) 最低显存**要求：
+
+| 模型参数 | 最低显存 | 8GB 本机 | Colab T4(≈15GB) |
+|----------|----------|----------|------------------|
+| 3B | 3.5 GB | ✅ 轻松 | ✅ |
+| 7B | 5 GB | ✅ 可跑（需压参数，见第 4 点） | ✅ |
+| 8B | 6 GB | ⚠️ 临界，建议直接 Colab | ✅ |
+| 9B | 6.5 GB | ⚠️ 临界 | ✅ |
+| 14B | 8.5 GB | ❌ 超出 | ✅ |
+| 20B | 10 GB+ | ❌ | ✅（勉强） |
+| 27B | 22 GB | ❌ | ❌（需更高档云卡） |
+
+**判定一句话**：需求 ≤8GB → 本机；>8GB → Colab T4。
+
+> 注意：LoRA(16-bit) 显存需求远高于 QLoRA（7B 需 19GB），8GB 卡不要用 LoRA 跑 7B，一律 QLoRA 或切 Colab。
+
+### 2. 本机 8GB 跑什么（照常学，不降级）
+
+- **Qwen2.5-7B QLoRA 全流程**（第三阶段实验 1/2/3）：核心学习内容，~5GB，按第 4 点参数跑
+- **Qwen2.5-3B QLoRA**：更从容，适合先跑通流程再上 7B
+- 数据集准备、参数调优、**GGUF 导出 + Ollama 部署**（部署后推理 CPU 也能跑）
+
+### 3. 哪些切 Colab T4（原教程不降级）
+
+| 场景 | 原因 |
+|------|------|
+| Free Notebooks 里 **8B 及以上模型**（Llama 3.1 8B、Phi-4 14B、Qwen3 14B、gpt-oss 20B 等） | 显存超出或临界 |
+| **GRPO/RL、视觉、TTS** 等 Notebook | 官方按 T4 编写，点开即跑 |
+| 想跑 **7B LoRA(16-bit)**（19GB）或 **14B QLoRA**（8.5GB） | 超出 8GB |
+| 本机 OOM 且已按第 4 点调满仍报错 | 该模型超出本机能力，**不要在 8GB 上硬磨** |
+
+### 4. 本机跑 7B QLoRA：只改三个数（不降模型）
+
+对照第三阶段训练代码，8GB 本机改动如下：
+
+| 参数 | 指南原值 | 8GB 本机值 | 作用 |
+|------|----------|-----------|------|
+| `per_device_train_batch_size` | 2 | **1** | 降显存（关键） |
+| `gradient_accumulation_steps` | 4 | **8** | 等效批量仍是 8，效果不降 |
+| `max_seq_length` | 2048 | **1024** | 序列是显存大头，先砍这里（3B 可回 2048） |
+
+其余（QLoRA 4bit、`use_gradient_checkpointing="unsloth"`、`optim="adamw_8bit"`）代码里已有，照抄。
+
+**OOM 递减顺序**：batch 已是 1 → seq 1024→512 → 确认开了 gradient checkpointing。走完仍 OOM → 切 Colab。
+
+### 5. Colab T4 使用要点
+
+1. 本文「Free Notebooks」那节的链接**点开就是 Colab 版**，无需改代码；运行时菜单选 **T4 GPU**（免费档）
+2. T4 ≈15GB：8B/14B QLoRA 都能跑；27B+ 和全参微调跑不了
+3. 免费额度有时限、易断线：**数据集和脚本放 Google Drive**，断线重连后从 checkpoint 续训
+4. Colab 大陆网络不稳时备选 **Kaggle**（每周 30h 免费 + 2×T4），官方同样提供现成 Notebook，代码零改动
+5. 产出物（adapter / GGUF）下载回本机，后续 Ollama 部署、评测都在本机做
 
 ---
 
