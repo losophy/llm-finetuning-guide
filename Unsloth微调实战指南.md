@@ -1,4 +1,4 @@
-# Unsloth 微调实战指南（第3-6周）
+# Unsloth 微调实战指南
 
 > **运行方式**：本机 8GB 能跑的 → 本机跑（只调 batch/seq 参数，不降模型档次）；8GB 跑不了的 → Google Colab 免费 T4 跑原版 Notebook（代码零改动）。判定方法见下节「运行方式」。
 >
@@ -135,7 +135,7 @@ model = FastLanguageModel.get_peft_model(model, r=16, lora_alpha=32)
 
 ---
 
-## 第一阶段：安装与环境配置（第3周）
+## 第一阶段：安装与环境配置
 
 ### 1. 系统要求
 
@@ -188,7 +188,7 @@ cd notebooks/nb
 
 ---
 
-## 第二阶段：数据集准备（第4周）- **重点！**
+## 第二阶段：数据集准备 - **重点！**
 
 > **核心原则**：70% 的时间在洗数据，不是写代码。
 > **100条精品数据原则**：先用100条高质量数据验证流程，再扩展到1000条。
@@ -252,7 +252,7 @@ eval_dataset = split_dataset["test"]
 
 ---
 
-## 第三阶段：Qwen2.5 微调实战（第5周）
+## 第三阶段：Qwen2.5 微调实战
 
 ### 1. 基础微调代码
 
@@ -347,7 +347,7 @@ trainer.save_model("./qwen2.5-finetuned-final")
 
 ---
 
-## 第四阶段：训练参数调优（第6周）
+## 第四阶段：训练参数调优
 
 ### 1. 关键参数说明
 
@@ -476,7 +476,7 @@ unsloth studio
 
 ## 实验记录与对比
 
-### 第5-6周实验目标
+### 实验目标
 
 完成以下 3 次微调实验，记录关键指标：
 
@@ -652,7 +652,7 @@ model = FastLanguageModel.get_peft_model(
 
 ---
 
-## 第6周结束检查清单
+## 阶段结束检查清单
 
 - [ ] 完成 Unsloth 安装和环境配置
 - [ ] 运行至少 2 个官方 Free Notebook（Llama 3.1 Alpaca + Qwen3 GRPO）
@@ -662,13 +662,13 @@ model = FastLanguageModel.get_peft_model(
 - [ ] 导出模型为 GGUF 格式
 - [ ] 使用 Ollama 或 Unsloth Studio 部署模型
 - [ ] 对比 Unsloth 与原生 HuggingFace 的速度差异
-- [ ] 为第7周的 LlamaFactory 学习做好准备
+- [ ] 为下一步 LlamaFactory 学习做好准备
 
 ---
 
-## 下一步学习（第7-10周）
+## 下一步学习
 
-完成 Unsloth 学习后，将进入第7-10周的 LlamaFactory 学习：
+完成 Unsloth 学习后，将进入 LlamaFactory 学习：
 - 使用 LlamaFactory 复现 Unsloth 的结果
 - 对比两者速度差异
 - 理解工业化框架如何封装底层细节
@@ -676,6 +676,6 @@ model = FastLanguageModel.get_peft_model(
 
 ---
 
-> **关键提醒**：第5周是弃坑高峰期（洗数据洗到吐），熬过去你就超过80%只会跑Demo的人。
+> **关键提醒**：弃坑高峰期在洗数据阶段（洗到吐），熬过去你就超过 80% 只会跑 Demo 的人。
 > 
 > **试错比看书重要**：显卡能点亮就直接跑 Demo，遇红字报错再搜方案，比啃完《深度学习》再碰代码快10倍。
