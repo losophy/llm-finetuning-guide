@@ -30,7 +30,7 @@
 | 项目 | Stars | 核心技术 | 用法 |
 |------|-------|----------|------|
 | [machinelearningplus - LoRA & QLoRA（中文完整指南）](LoRA与QLoRA微调大语言模型完整指南.md) | — | LoRA/QLoRA 完整代码 | **入门必看**。本仓库含配套脚本（`llm-lora-qlora-finetuning-guide/`），可直接运行。逐行抄写代码，重点关注 `LoraConfig` 里的 `r`（秩）、`alpha`、`target_modules` 怎么影响显存。含内存计算、常见错误 |
-| [unslothai/unsloth](https://github.com/unslothai/unsloth) | 63K+ | LoRA/QLoRA 加速 | **纯代码主框架**。250+ Notebook 示例，必须手动处理 JSON 数据集、手动拆分训练/验证集——痛苦但有用。加速 2-5 倍、显存减半，消费级 GPU 可跑。8GB 本机 / Colab T4 跑法见《Unsloth微调实战指南.md》开头「运行方式」一节 |
+| [unslothai/unsloth](https://github.com/unslothai/unsloth) | 63K+ | LoRA/QLoRA 加速 | **纯代码主框架**。250+ Notebook 示例，必须手动处理 JSON 数据集、手动拆分训练/验证集——痛苦但有用。加速 2-5 倍、显存减半，消费级 GPU 可跑。8GB 本机 / Colab T4 跑法见《Unsloth微调实战指南.md》开头「运行方式」一节。配套代码见 `unsloth-finetuning-guide/` |
 
 ### 🔧 第二优先级：工业化框架 + 蒸馏
 
@@ -50,6 +50,19 @@
 | [AdityaSagarr/LLM-Fine-Tuning](https://github.com/AdityaSagarr/LLM-Fine-Tuning) | 1 | LoRA/QLoRA 完整流程 | Colab 可跑，Llama-2-7B 实例 |
 | [technoscripts - 5步微调](https://technoscripts.com/python-fine-tuning-llm/) | — | LoRA/QLoRA 5 步流程 | 单 GPU 实操：数据准备 → 训练 → 合并 → 部署 |
 | [腾讯云 - 微调+Agent实战](https://developer.cloud.tencent.com/article/2716375) | — | QLoRA + 蒸馏 + 多工具调用 | ⚠️ **放到学习后期再碰**。微调还没学好就加 Agent，梯度爆炸会让你直接弃坑 |
+
+## 本仓库代码文件
+
+### Unsloth 微调代码（`unsloth-finetuning-guide/`）
+
+| 文件 | 用途 |
+|------|------|
+| `verify_installation.py` | 验证 PyTorch、CUDA、GPU 环境 |
+| `prepare_data.py` | 数据集准备与格式化 |
+| `finetune_basic.py` | Qwen2.5 QLoRA 微调主脚本 |
+| `training_args_example.py` | 训练参数配置（含 8GB 显存优化） |
+| `save_model.py` | 保存 LoRA adapter |
+| `export_gguf.py` | 导出 GGUF 格式（Ollama 部署） |
 
 ## 两个"隐形的雷"
 

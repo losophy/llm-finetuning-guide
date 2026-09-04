@@ -175,6 +175,8 @@ print(f"GPU: {torch.cuda.get_device_name(0)}")
 print(f"VRAM: {torch.cuda.get_device_properties(0).total_mem / 1e9:.1f} GB")
 ```
 
+> 📁 **完整代码**：`unsloth-finetuning-guide/verify_installation.py`
+
 ### 4. 运行官方示例
 
 ```bash
@@ -234,6 +236,8 @@ split_dataset = dataset.train_test_split(test_size=0.2)
 train_dataset = split_dataset["train"]
 eval_dataset = split_dataset["test"]
 ```
+
+> 📁 **完整代码**：`unsloth-finetuning-guide/prepare_data.py`
 
 ### 3. 使用 Unsloth Data Recipes（推荐）
 
@@ -330,6 +334,8 @@ trainer.train()
 trainer.save_model("./qwen2.5-finetuned-final")
 ```
 
+> 📁 **完整代码**：`unsloth-finetuning-guide/finetune_basic.py`
+
 ### 2. 训练监控要点
 
 - **training_loss**：应该逐渐下降
@@ -374,6 +380,8 @@ training_args = TrainingArguments(
     optim="adamw_8bit",                 # 8-bit 优化器
 )
 ```
+
+> 📁 **完整代码**：`unsloth-finetuning-guide/training_args_example.py`（含 8GB 显存优化配置）
 
 ### 2. 调优策略
 
@@ -426,6 +434,8 @@ model.push_to_hub("your-username/qwen2.5-finetuned")
 tokenizer.save_pretrained("./qwen2.5-lora-adapter")
 ```
 
+> 📁 **完整代码**：`unsloth-finetuning-guide/save_model.py`
+
 ### 2. 导出为 GGUF（用于 Ollama/llama.cpp）
 
 ```python
@@ -440,6 +450,8 @@ model.save_pretrained_gguf(
 # quantization_method="q8_0"   # 8-bit，质量更高
 # quantization_method="q5_k_m" # 5-bit，平衡选择
 ```
+
+> 📁 **完整代码**：`unsloth-finetuning-guide/export_gguf.py`
 
 ### 3. 使用 Ollama 部署
 
