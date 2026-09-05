@@ -1,73 +1,58 @@
 # Unsloth 微调实战指南
 
-> **运行方式**：本机 8GB 能跑的 → 本机跑（只调 batch/seq 参数，不降模型档次）；8GB 跑不了的 → Google Colab 免费 T4 跑原版 Notebook（代码零改动）。判定方法见下节「运行方式」。
+> **运行方式**：全部使用云端 GPU 运行，推荐 Google Colab 免费 T4（≈15GB VRAM）或 Kaggle 免费额度（每周 30h + 2×T4）。无需本地 GPU，代码零改动即可运行。
 >
 > **学习目标**：掌握 Unsloth 微调框架，能够独立完成 Qwen2.5 模型的微调与部署
 >
-> **适用硬件**：NVIDIA GPU 8GB（如 RTX 4060 Ti）；8GB 跑不了的模型用 Google Colab 免费 T4（≈15GB），网络不稳备选 Kaggle 免费额度
+> **适用硬件**：Google Colab 免费 T4 GPU（≈15GB）；网络不稳备选 Kaggle 免费额度
 >
 > **前置知识**：已掌握 LoRA/QLoRA 基础理论（参见 `LoRA与QLoRA微调大语言模型完整指南.md`）
 
 ---
 
-## 运行方式：本机 8GB 与 Google Colab T4 怎么选
+## 运行方式：云端 GPU 运行指南
 
-> **一条原则**：8GB 显存能跑的在本机跑（只调 batch/seq，不降模型档次）；8GB 跑不了的上 Google Colab 免费 T4 跑原版 Notebook，代码零改动。本文代码示例均为标准写法，本机运行时按本节参数调整即可。
+> **一条原则**：所有微调任务均在云端 GPU 运行，推荐 Google Colab 免费 T4（≈15GB VRAM）；网络不稳时备选 Kaggle 免费额度（每周 30h + 2×T4）。无需本地 GPU，代码零改动。
 
-### 1. 显存门槛：判断该在哪跑
+### 1. 云端平台选择
 
-Unsloth 官方给出的 **QLoRA(4-bit) 最低显存**要求：
+| 平台 | GPU 配置 | 免费额度 | 优势 |
+|------|----------|----------|------|
+| **Google Colab** | T4（≈15GB） | 每天免费使用（有时限） | 官方 Notebook 直接运行，生态完善 |
+| **Kaggle** | 2×T4（≈30GB） | 每周 30 小时 | 显存更大，适合 14B+ 模型 |
+| **其他云 GPU** | A100/H100（按需） | 付费 | 适合大规模训练 |
 
-| 模型参数 | 最低显存 | 8GB 本机 | Colab T4(≈15GB) |
-|----------|----------|----------|------------------|
-| 3B | 3.5 GB | ✅ 轻松 | ✅ |
-| 7B | 5 GB | ✅ 可跑（需压参数，见第 4 点） | ✅ |
-| 8B | 6 GB | ⚠️ 临界，建议直接 Colab | ✅ |
-| 9B | 6.5 GB | ⚠️ 临界 | ✅ |
-| 14B | 8.5 GB | ❌ 超出 | ✅ |
-| 20B | 10 GB+ | ❌ | ✅（勉强） |
-| 27B | 22 GB | ❌ | ❌（需更高档云卡） |
+**推荐路径**：入门用 Colab T4 → 大模型用 Kaggle 2×T4 → 生产用付费云 GPU。
 
-**判定一句话**：需求 ≤8GB → 本机；>8GB → Colab T4。
+### 2. 模型显存需求对照（Colab T4 ≈15GB）
 
-> 注意：LoRA(16-bit) 显存需求远高于 QLoRA（7B 需 19GB），8GB 卡不要用 LoRA 跑 7B，一律 QLoRA 或切 Colab。
+| 模型参数 | 最低显存 | Colab T4 能跑 | 说明 |
+|----------|----------|----------------|------|
+| 3B | 3.5 GB | ✅ 轻松 | 入门首选 |
+| 7B | 5 GB | ✅ 轻松 | 核心学习内容 |
+| 8B | 6 GB | ✅ 轻松 | Llama 3.1 等 |
+| 9B | 6.5 GB | ✅ 轻松 | - |
+| 14B | 8.5 GB | ✅ 可跑 | Phi-4、Qwen3 14B 等 |
+| 20B | 10 GB+ | ⚠️ 勉强（QLoRA） | gpt-oss 20B 等 |
+| 27B | 22 GB | ❌ 需 Kaggle 2×T4 | 大模型 |
 
-### 2. 本机 8GB 跑什么（照常学，不降级）
+### 3. 云端运行推荐配置
 
-- **Qwen2.5-7B QLoRA 全流程**（第三阶段实验 1/2/3）：核心学习内容，~5GB，按第 4 点参数跑
-- **Qwen2.5-3B QLoRA**：更从容，适合先跑通流程再上 7B
-- 数据集准备、参数调优、**GGUF 导出 + Ollama 部署**（部署后推理 CPU 也能跑）
+| 模型 | 平台 | batch_size | grad_accum | max_seq_len | 说明 |
+|------|------|------------|------------|-------------|------|
+| 3B QLoRA | Colab T4 | 4 | 2 | 2048 | 从容运行 |
+| 7B QLoRA | Colab T4 | 2 | 4 | 2048 | 标准配置 |
+| 8B QLoRA | Colab T4 | 2 | 4 | 2048 | Llama 3.1 等 |
+| 14B QLoRA | Kaggle 2×T4 | 2 | 4 | 2048 | 需更大显存 |
+| 7B LoRA(16-bit) | Kaggle 2×T4 | 1 | 8 | 2048 | 19GB 显存需求 |
 
-### 3. 哪些切 Colab T4（原教程不降级）
+### 4. 云端运行要点
 
-| 场景 | 原因 |
-|------|------|
-| Free Notebooks 里 **8B 及以上模型**（Llama 3.1 8B、Phi-4 14B、Qwen3 14B、gpt-oss 20B 等） | 显存超出或临界 |
-| **GRPO/RL、视觉、TTS** 等 Notebook | 官方按 T4 编写，点开即跑 |
-| 想跑 **7B LoRA(16-bit)**（19GB）或 **14B QLoRA**（8.5GB） | 超出 8GB |
-| 本机 OOM 且已按第 4 点调满仍报错 | 该模型超出本机能力，**不要在 8GB 上硬磨** |
-
-### 4. 本机跑 7B QLoRA：只改三个数（不降模型）
-
-对照第三阶段训练代码，8GB 本机改动如下：
-
-| 参数 | 指南原值 | 8GB 本机值 | 作用 |
-|------|----------|-----------|------|
-| `per_device_train_batch_size` | 2 | **1** | 降显存（关键） |
-| `gradient_accumulation_steps` | 4 | **8** | 等效批量仍是 8，效果不降 |
-| `max_seq_length` | 2048 | **1024** | 序列是显存大头，先砍这里（3B 可回 2048） |
-
-其余（QLoRA 4bit、`use_gradient_checkpointing="unsloth"`、`optim="adamw_8bit"`）代码里已有，照抄。
-
-**OOM 递减顺序**：batch 已是 1 → seq 1024→512 → 确认开了 gradient checkpointing。走完仍 OOM → 切 Colab。
-
-### 5. Colab T4 使用要点
-
-1. 本文「Free Notebooks」那节的链接**点开就是 Colab 版**，无需改代码；运行时菜单选 **T4 GPU**（免费档）
-2. T4 ≈15GB：8B/14B QLoRA 都能跑；27B+ 和全参微调跑不了
-3. 免费额度有时限、易断线：**数据集和脚本放 Google Drive**，断线重连后从 checkpoint 续训
-4. Colab 大陆网络不稳时备选 **Kaggle**（每周 30h 免费 + 2×T4），官方同样提供现成 Notebook，代码零改动
-5. 产出物（adapter / GGUF）下载回本机，后续 Ollama 部署、评测都在本机做
+1. 本文「Free Notebooks」那节的链接**点开就是 Colab 版**，运行时菜单选 **T4 GPU**（免费档）
+2. 免费额度有时限、易断线：**数据集和脚本放 Google Drive**，断线重连后从 checkpoint 续训
+3. Kaggle 大陆网络不稳时备选 **Colab**，或使用 VPN
+4. 产出物（adapter / GGUF）下载到本地计算机，后续 Ollama 部署、评测在本地计算机进行
+5. 大模型（27B+）需升级到付费云 GPU（A100/H100）
 
 ---
 
@@ -135,39 +120,23 @@ model = FastLanguageModel.get_peft_model(model, r=16, lora_alpha=32)
 
 ---
 
-## 第一阶段：安装与环境配置
+## 第一阶段：云端环境配置
 
-### 1. 系统要求
+### 1. 云端环境要求
 
 | 组件 | 要求 |
 |------|------|
-| 操作系统 | Windows/Linux/WSL |
-| Python | 3.9+ |
-| CUDA | 11.8+（推荐 12.1） |
-| GPU | NVIDIA（6GB+ VRAM，推荐 24GB） |
+| 平台 | Google Colab / Kaggle |
+| Python | 3.9+（云端预装） |
+| CUDA | 11.8+（云端预装） |
+| GPU | T4（≈15GB）或更高 |
 
-### 2. 安装步骤
+### 2. Colab 环境配置
 
-#### 方法1：使用官方安装脚本（推荐）
-
-```bash
-# macOS, Linux, WSL
-curl -fsSL https://unsloth.ai/install.sh | sh
-
-# Windows PowerShell
-irm https://unsloth.ai/install.ps1 | iex
-```
-
-#### 方法2：手动安装
-
-```bash
-pip install unsloth
-pip install --upgrade --no-cache-dir torch trl peft accelerate
-```
-
-### 3. 验证安装
+#### 步骤1：选择 GPU 运行时
 
 ```python
+# 在 Colab 中运行，确认 GPU 可用
 import torch
 print(f"PyTorch: {torch.__version__}")
 print(f"CUDA: {torch.cuda.is_available()}")
@@ -175,18 +144,53 @@ print(f"GPU: {torch.cuda.get_device_name(0)}")
 print(f"VRAM: {torch.cuda.get_device_properties(0).total_mem / 1e9:.1f} GB")
 ```
 
-> 📁 **完整代码**：`unsloth-finetuning-guide/verify_installation.py`
-
-### 4. 运行官方示例
+#### 步骤2：安装 Unsloth
 
 ```bash
-# 下载官方 Notebook
-git clone https://github.com/unslothai/notebooks.git
-cd notebooks/nb
-
-# 运行 Llama 3.1 (8B) Alpaca 示例
-# 或直接在 Google Colab 中运行
+# 在 Colab 中运行
+!pip install unsloth
+!pip install --upgrade --no-cache-dir torch trl peft accelerate
 ```
+
+#### 步骤3：挂载 Google Drive（推荐）
+
+```python
+# 挂载 Google Drive，用于持久化数据和检查点
+from google.colab import drive
+drive.mount('/content/drive')
+
+# 创建工作目录
+!mkdir -p /content/drive/MyDrive/unsloth-project
+```
+
+### 3. Kaggle 环境配置
+
+#### 步骤1：启用 GPU
+
+```python
+# 在 Kaggle Notebook 中运行
+import torch
+print(f"PyTorch: {torch.__version__}")
+print(f"CUDA: {torch.cuda.is_available()}")
+print(f"GPU: {torch.cuda.get_device_name(0)}")
+```
+
+#### 步骤2：安装 Unsloth
+
+```bash
+# 在 Kaggle 中运行
+!pip install unsloth
+```
+
+### 4. 运行官方 Notebook
+
+```bash
+# 直接打开 Colab 链接即可运行
+# 例如：Llama 3.1 (8B) Alpaca 示例
+# https://colab.research.google.com/github/unslothai/notebooks/blob/main/nb/Llama3.1_%288B%29-Alpaca.ipynb
+```
+
+> 📁 **完整代码**：`unsloth-finetuning-guide/verify_installation.py`
 
 ---
 
@@ -408,14 +412,16 @@ training_args = TrainingArguments(
 - 使用 Flash Attention 2
 - 检查 GPU 利用率（`nvidia-smi`）
 
-### 3. 不同硬件的推荐配置
+### 3. 云端 GPU 推荐配置
 
-| GPU VRAM | 模型大小 | 推荐配置 |
-|----------|----------|----------|
-| 6-8GB | 7B QLoRA | batch_size=1, grad_accum=8, r=16 |
-| 12-16GB | 7B LoRA | batch_size=2, grad_accum=4, r=16 |
-| 24GB | 7B LoRA | batch_size=4, grad_accum=2, r=32 |
-| 24GB+ | 13B QLoRA | batch_size=2, grad_accum=4, r=16 |
+| 云端平台 | GPU VRAM | 模型大小 | 推荐配置 |
+|----------|----------|----------|----------|
+| Colab T4 | ≈15GB | 3B QLoRA | batch_size=4, grad_accum=2, r=16 |
+| Colab T4 | ≈15GB | 7B QLoRA | batch_size=2, grad_accum=4, r=16 |
+| Colab T4 | ≈15GB | 8B QLoRA | batch_size=2, grad_accum=4, r=16 |
+| Kaggle 2×T4 | ≈30GB | 14B QLoRA | batch_size=2, grad_accum=4, r=16 |
+| Kaggle 2×T4 | ≈30GB | 7B LoRA(16-bit) | batch_size=1, grad_accum=8, r=16 |
+| 付费云 GPU | A100(40GB) | 13B+ LoRA | batch_size=4, grad_accum=2, r=32 |
 
 ---
 
@@ -658,7 +664,7 @@ model = FastLanguageModel.get_peft_model(
 - GitHub Issues：https://github.com/unslothai/unsloth/issues
 
 ### 相关工具
-- Ollama：https://ollama.com（本地部署）
+- Ollama：https://ollama.com（本地计算机部署）
 - LM Studio：https://lmstudio.ai（GUI 界面）
 - HuggingFace：https://huggingface.co（模型库）
 
@@ -672,7 +678,7 @@ model = FastLanguageModel.get_peft_model(
 - [ ] 完成 3 次 Qwen2.5 微调实验
 - [ ] 记录每次实验的参数和结果
 - [ ] 导出模型为 GGUF 格式
-- [ ] 使用 Ollama 或 Unsloth Studio 部署模型
+- [ ] 使用 Ollama 在本地计算机部署模型
 - [ ] 对比 Unsloth 与原生 HuggingFace 的速度差异
 - [ ] 为下一步 LlamaFactory 学习做好准备
 
