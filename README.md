@@ -2,16 +2,16 @@
 
 记录大语言模型 LoRA 与 QLoRA 微调的学习过程，含正确学习路线、实战资源清单与关键心法。
 
-## 学习路径（原理 → 纯代码 → 工业化封装）
+## 学习路径（原理 → 纯代码 → 工业化封装 → 评估部署）
 
 ```
 第一阶段：死磕原理 —— 本地中文完整指南《LoRA与QLoRA微调大语言模型完整指南.md》（machinelearningplus 翻译版）
    ↓  先逐行手敲 LoRA 代码
 第二阶段：用 Unsloth "受虐" —— 纯代码框架跑通 Qwen2.5 微调
    ↓  频繁报错才有价值，每解决一个报错，对 PyTorch / HuggingFace 的理解就深一层
-第三阶段：LlamaFactory 工业化封装 + 蒸馏实战
+第三阶段：LlamaFactory 工业化封装（配套《ai-agents-from-zero》第 31 章）+ 蒸馏实战
    ↓  此时再看 Web UI，会有"一览众山小"的通透感
-（可选延伸）腾讯云 Agent 教程 —— 微调基础打牢之后再碰
+第四阶段：微调效果评估与部署（《ai-agents-from-zero》第 32 章）—— 单条验证 → 批量评分 → 导出合并 → 独立加载
 ```
 
 ### 执行清单
@@ -20,7 +20,8 @@
 |------|----------|--------|
 | 阶段一（原理） | 手敲《LoRA与QLoRA微调大语言模型完整指南.md》里的 LoRA 代码（逐行抄，不复制粘贴） | 能画出 LoRA 的原理推导草图，能用大白话讲清"为什么 QLoRA 能把 7B 模型塞进 8G 显存" |
 | 阶段二（纯代码） | 在 Unsloth 上跑通 Qwen2.5 微调，换 3 种不同数据集（如阿里天池中文问答） | 至少 3 个不同风格的 Adapter 权重文件 |
-| 阶段三（工业化） | 用 LlamaFactory 复现阶段二的结果，对比两者速度差异 | 理解工业化框架如何封装底层细节 |
+| 阶段三（工业化） | 用 LlamaFactory 复现阶段二的结果（对照《ai-agents-from-zero》第 31 章），对比两者速度差异 | 理解工业化框架如何封装底层细节 |
+| 阶段四（评估部署） | 按《ai-agents-from-zero》第 32 章做单条验证 → 批量预测与评分 → 合并导出、独立加载 | 一份可复现的评测结果 |
 | 蒸馏实战 | 参考 LLM_Optimization，用蒸馏把 7B 模型的知识灌进 0.5B 小模型 | 一个能在笔记本 CPU 上跑起来的蒸馏小模型 |
 
 ## 项目清单（按路径重排优先级）
@@ -36,7 +37,8 @@
 
 | 项目 | Stars | 核心技术 | 用法 |
 |------|-------|----------|------|
-| [hiyouga/LlamaFactory](https://github.com/hiyouga/LlamaFactory) | 71K+ | LoRA/QLoRA/全参/DPO/RLHF | **打通原理、跑通纯代码之后再打开**。微调框架之王，Web UI 零代码，100+ 模型。用来复现 Unsloth 结果、对比封装差异 |
+| [hiyouga/LlamaFactory](https://github.com/hiyouga/LlamaFactory) | 71K+ | LoRA/QLoRA/全参/DPO/RLHF | **打通原理、跑通纯代码之后再打开**。微调框架之王，Web UI 零代码，100+ 模型。用来复现 Unsloth 结果、对比封装差异。配套中文实战教程见《ai-agents-from-zero》第 31 章 |
+| [didilili/ai-agents-from-zero —— 微调篇（第 28–33 章）](https://github.com/didilili/ai-agents-from-zero) | — | LLaMA-Factory 实战 / 评估部署 / 显存优化 | **中文实战教程，微调篇与本地学习路径完全重合**。29 数据准备与对话模板、30 训练原理与高效微调（LoRA、QLoRA、显存算例）、31 LLaMA-Factory 环境搭建与微调实战（对应阶段三）、32 微调效果评估与模型部署（对应阶段四）、33 显存优化与多卡训练（对应 8GB 显存约束）。克隆：`git clone git@github.com:didilili/ai-agents-from-zero.git` |
 | [hdtinh57/LLM_Optimization](https://github.com/hdtinh57/LLM_Optimization) | 新 | QLoRA → CoT 蒸馏 → GGUF 量化 → Ollama 部署 | ⚠️ **致命预警**：项目新、Star 少，千万别直接跑全量代码（大概率报错无人解答）。正确操作是"偷"它的蒸馏逻辑——看它怎么用教师模型生成软标签训练学生模型，再移植到 LlamaFactory 里跑 |
 
 ### 📚 参考梯队（有余力再看）
@@ -49,7 +51,17 @@
 | [rmisegal/llm-lora-project](https://github.com/rmisegal/llm-lora-project) | 1 | LoRA 14 个渐进任务 | 教学项目，从基础到高级 |
 | [AdityaSagarr/LLM-Fine-Tuning](https://github.com/AdityaSagarr/LLM-Fine-Tuning) | 1 | LoRA/QLoRA 完整流程 | Colab 可跑，Llama-2-7B 实例 |
 | [technoscripts - 5步微调](https://technoscripts.com/python-fine-tuning-llm/) | — | LoRA/QLoRA 5 步流程 | 单 GPU 实操：数据准备 → 训练 → 合并 → 部署 |
-| [腾讯云 - 微调+Agent实战](https://developer.cloud.tencent.com/article/2716375) | — | QLoRA + 蒸馏 + 多工具调用 | ⚠️ **放到学习后期再碰**。微调还没学好就加 Agent，梯度爆炸会让你直接弃坑 |
+
+## 微调篇（第 28–33 章）直达
+
+摘自开源中文教程 [ai-agents-from-zero](https://github.com/didilili/ai-agents-from-zero)（[在线阅读](https://didilili.github.io/ai-agents-from-zero/#/)）：
+
+- [28 大模型微调概述与整体流程](https://github.com/didilili/ai-agents-from-zero/blob/main/28-大模型微调概述与整体流程.md)
+- [29 微调数据准备与对话模板](https://github.com/didilili/ai-agents-from-zero/blob/main/29-微调数据准备与对话模板.md)
+- [30 模型训练原理与高效微调](https://github.com/didilili/ai-agents-from-zero/blob/main/30-模型训练原理与高效微调.md)
+- [31 LLaMA-Factory 环境搭建与微调实战](https://github.com/didilili/ai-agents-from-zero/blob/main/31-LLaMA-Factory环境搭建与微调实战.md)
+- [32 微调效果评估与模型部署](https://github.com/didilili/ai-agents-from-zero/blob/main/32-微调效果评估与模型部署.md)
+- [33 微调显存优化与多卡训练](https://github.com/didilili/ai-agents-from-zero/blob/main/33-微调显存优化与多卡训练.md)
 
 ## 本仓库代码文件
 
@@ -66,7 +78,7 @@
 
 ## 两个"隐形的雷"
 
-1. **腾讯云教程（Agent）**：涉及智能体和多工具调用，微调基础不牢时不要碰，放到学习后期。
+1. **多卡并行 / DeepSpeed ZeRO（第 33 章）**：单卡 8GB 阶段先跳过，等有多卡环境（或租多卡云实例）再看，别被带偏。
 2. **量化工具（GPTQ/AWQ）**：直接用 Unsloth 自带的 `save_pretrained_gguf()` 一键转 GGUF 给 Ollama 部署，不必单独去学 GPTQ 源码。
 
 ## 关键心法
