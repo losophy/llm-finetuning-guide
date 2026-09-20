@@ -70,7 +70,7 @@
 | 文件 | 用途 |
 |------|------|
 | `verify_installation.py` | 验证 PyTorch、CUDA、GPU 环境 |
-| `prepare_data.py` | 数据集准备与格式化 |
+| `prepare_data.py` | 数据集加载与划分（HuggingFace Hub / 本地 JSONL，自动识别 Alpaca / ShareGPT） |
 | `finetune_basic.py` | Qwen2.5 QLoRA 微调主脚本 |
 | `training_args_example.py` | 训练参数配置（含 8GB 显存优化） |
 | `save_model.py` | 保存 LoRA adapter |

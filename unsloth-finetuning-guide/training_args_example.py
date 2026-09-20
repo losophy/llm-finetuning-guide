@@ -15,7 +15,7 @@ def get_training_args(output_dir="./qwen2.5-finetuned"):
         # 学习率
         learning_rate=2e-4,                 # LoRA 标准起点
         lr_scheduler_type="cosine",         # 余弦退火
-        warmup_ratio=0.03,                  # 3% 预热
+        warmup_steps=10,                    # 预热步数（新版 transformers 已移除 warmup_ratio）
 
         # 训练轮次
         num_train_epochs=3,                 # 避免过拟合（1-3轮推荐）
@@ -31,7 +31,7 @@ def get_training_args(output_dir="./qwen2.5-finetuned"):
         output_dir=output_dir,
         logging_steps=10,
         save_steps=100,
-        evaluation_strategy="steps",
+        eval_strategy="steps",
         eval_steps=100,
     )
 
@@ -43,14 +43,15 @@ def get_8gb_vram_args(output_dir="./qwen2.5-finetuned"):
     training_args = TrainingArguments(
         per_device_train_batch_size=1,      # 8GB 必须设为 1
         gradient_accumulation_steps=8,      # 等效批量仍是 8
-        max_seq_length=1024,                # 序列长度减半
+        # 注意：序列长度不是 TrainingArguments 参数，
+        # 请在 FastLanguageModel.from_pretrained(max_seq_length=1024) 处设置
 
         learning_rate=2e-4,
         lr_scheduler_type="cosine",
-        warmup_ratio=0.03,
+        warmup_steps=10,
         num_train_epochs=3,
 
-        fp16=not False,  # 8GB 卡用 fp16
+        fp16=True,                          # 8GB 卡用 fp16
         bf16=False,
 
         gradient_checkpointing=True,
@@ -87,7 +88,7 @@ HARDWARE_CONFIGS = {
     "24GB+": {
         "per_device_train_batch_size": 2,
         "gradient_accumulation_steps": 4,
-        "r": 16,
+        "r": 32,
         "max_seq_length": 2048,
     },
 }

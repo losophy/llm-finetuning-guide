@@ -224,21 +224,14 @@ print(f"GPU: {torch.cuda.get_device_name(0)}")
 
 ### 2. 数据集准备代码
 
+> **数据集来源**：本指南不附带数据文件。默认加载 HuggingFace Hub 的公开数据集 `yahma/alpaca-cleaned`（Alpaca 格式），可换成中文数据集（如 `shibing624/alpaca-zh`），也可传入本地 JSONL——脚本会自动识别 Alpaca / ShareGPT 两种字段。
+> 中国大陆网络可先设镜像：`export HF_ENDPOINT=https://hf-mirror.com`
+
 ```python
-from datasets import Dataset
+from prepare_data import prepare_datasets
 
-# 手动准备数据集
-data = {
-    "instruction": ["任务1", "任务2", "任务3"],
-    "input": ["输入1", "输入2", "输入3"],
-    "output": ["输出1", "输出2", "输出3"]
-}
-dataset = Dataset.from_dict(data)
-
-# 划分训练集和验证集
-split_dataset = dataset.train_test_split(test_size=0.2)
-train_dataset = split_dataset["train"]
-eval_dataset = split_dataset["test"]
+# 默认加载 HuggingFace 数据集；也可传本地文件：prepare_datasets("data/xxx.jsonl")
+train_dataset, eval_dataset = prepare_datasets()
 ```
 
 > 📁 **完整代码**：`unsloth-finetuning-guide/prepare_data.py`
@@ -269,8 +262,7 @@ eval_dataset = split_dataset["test"]
 
 import torch
 from unsloth import FastLanguageModel
-from trl import SFTTrainer
-from transformers import TrainingArguments
+from trl import SFTConfig, SFTTrainer
 
 
 def load_model(model_name="unsloth/Qwen2.5-7B-bnb-4bit", max_seq_length=2048):
@@ -300,8 +292,9 @@ def configure_lora(model):
 
 
 def format_prompt(sample):
-    """格式化 Alpaca 格式数据"""
-    return f"""### Instruction:
+    """格式化 Alpaca 格式数据（input 为空时省略 Input 段）"""
+    if str(sample.get("input", "")).strip():
+        return f"""### Instruction:
 {sample['instruction']}
 
 ### Input:
@@ -309,20 +302,25 @@ def format_prompt(sample):
 
 ### Response:
 {sample['output']}"""
+    return f"""### Instruction:
+{sample['instruction']}
+
+### Response:
+{sample['output']}"""
 
 
 def create_trainer(model, tokenizer, train_dataset, eval_dataset,
-                   max_seq_length=2048, output_dir="./qwen2.5-finetuned"):
+                   max_length=2048, output_dir="./qwen2.5-finetuned"):
     """创建训练器"""
     trainer = SFTTrainer(
         model=model,
-        tokenizer=tokenizer,
+        processing_class=tokenizer,
         train_dataset=train_dataset,
         eval_dataset=eval_dataset,
-        dataset_text_field="text",
-        max_seq_length=max_seq_length,
-        args=TrainingArguments(
+        args=SFTConfig(
             output_dir=output_dir,
+            dataset_text_field="text",
+            max_length=max_length,
             per_device_train_batch_size=2,
             gradient_accumulation_steps=4,
             num_train_epochs=3,
@@ -332,9 +330,9 @@ def create_trainer(model, tokenizer, train_dataset, eval_dataset,
             logging_steps=10,
             save_steps=100,
             optim="adamw_8bit",
-            warmup_ratio=0.03,
+            warmup_steps=10,
             lr_scheduler_type="cosine",
-            evaluation_strategy="steps",
+            eval_strategy="steps",
             eval_steps=100,
         ),
     )
@@ -349,23 +347,26 @@ def train(trainer, output_dir="./qwen2.5-finetuned-final"):
 
 
 if __name__ == "__main__":
+    from prepare_data import prepare_datasets
+
     # 加载模型
     model, tokenizer = load_model()
 
     # 配置 LoRA
     model = configure_lora(model)
 
-    # 这里需要准备数据集
-    # from prepare_data import prepare_datasets
-    # train_dataset, eval_dataset = prepare_datasets()
+    # 准备数据集（默认 HuggingFace 公开数据集；也可传本地 JSONL 路径）
+    train_dataset, eval_dataset = prepare_datasets()
+    train_dataset = train_dataset.map(lambda x: {"text": format_prompt(x)})
+    eval_dataset = eval_dataset.map(lambda x: {"text": format_prompt(x)})
 
     # 创建训练器
-    # trainer = create_trainer(model, tokenizer, train_dataset, eval_dataset)
+    trainer = create_trainer(model, tokenizer, train_dataset, eval_dataset)
 
     # 开始训练
-    # train(trainer)
+    train(trainer)
 
-    print("模型加载完成，请准备数据集后运行训练")
+    print("训练完成，模型已保存到 ./qwen2.5-finetuned-final")
 ```
 
 > 📁 **完整代码**：`unsloth-finetuning-guide/finetune_basic.py`（本代码块与脚本逐字一致）
@@ -400,7 +401,7 @@ training_args = TrainingArguments(
     # 学习率
     learning_rate=2e-4,                 # LoRA 标准起点
     lr_scheduler_type="cosine",         # 余弦退火
-    warmup_ratio=0.03,                  # 3% 预热
+    warmup_steps=10,                    # 预热步数（新版已移除 warmup_ratio）
     
     # 训练轮次
     num_train_epochs=3,                 # 避免过拟合（1-3轮推荐）
