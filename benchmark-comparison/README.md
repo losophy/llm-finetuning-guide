@@ -15,14 +15,36 @@
 
 **两个独立 notebook，各跑一侧。** 顺序不限。
 
-### 第 1 个 cell：环境准备（两个 notebook 必须用完全相同的这一格）
+### 第 1 个 cell：环境准备（两个 notebook 必须用**逐字相同**的这一格）
+
+用 Unsloth 官方 notebook 的标准安装格（Colab / Kaggle 通用）：
 
 ```python
-!pip install unsloth
-!pip install --upgrade --no-cache-dir torch trl peft accelerate bitsandbytes datasets
+%%capture
+import os, re
+if "COLAB_" not in "".join(os.environ.keys()):
+    !pip install unsloth  # Do this in local & cloud setups
+else:
+    import torch; v = re.match(r'[\d]{1,}\.[\d]{1,}', str(torch.__version__)).group(0)
+    xformers = 'xformers==' + {'2.10':'0.0.34','2.9':'0.0.33.post1','2.8':'0.0.32.post2'}.get(v, "0.0.34")
+    !pip install sentencepiece protobuf "datasets==4.3.0" "huggingface_hub>=0.34.0" hf_transfer
+    !pip install --no-deps unsloth_zoo bitsandbytes accelerate {xformers} peft trl triton unsloth
+    !pip install --no-deps --upgrade "torchao>=0.16.0"
+    !pip install transformers==4.56.2
+    !pip install --no-deps trl==0.22.2
 ```
 
-装完 **重启会话**（运行时 → 重启会话），两个 notebook 都这么做。
+几条必须知道的：
+
+- **`%%capture` 会吞掉安装日志**——装失败时屏幕上什么都没有。第一次跑先删掉这一行，确认装成功再加回来。
+- **缩进要原样保留**：`!pip` 写在 if/else 块里靠的是 IPython 的 shell magic，手抄丢了缩进会直接 `SyntaxError`。整格从官方 notebook 复制。
+- **这几行顺序是有意的**：先 `--no-deps` 装 trl，再单独把版本钉到 0.22.2，防止 trl 的依赖把 transformers 拽走。别重排。
+- **不升级 torch**（只读版本号来选 xformers），所以**不需要重启会话**；若下一格 import 报错，再重启。
+- **版本被钉在** `transformers==4.56.2` / `trl==0.22.2`。基准脚本用到的 `processing_class=` / `max_length=` / `eval_strategy=` 在这个组合里都有，不会因版本报错。但**别在同一个会话里跑项目里按 transformers 5.x 写的其他脚本**。
+- **xformers 会同时装进两侧**（条件因此仍一致），**绝不能只在一侧装**。
+- Kaggle 上检测不到 `COLAB_`，会自动退化成 `!pip install unsloth`——所以这一格两平台通用。
+
+> **可选提速**：这一格已经装了 `hf_transfer`。在下一格粘脚本时，于文件开头加一行 `os.environ["HF_HUB_ENABLE_HF_TRANSFER"] = "1"`，下 15GB 的 `Qwen/Qwen2.5-7B` 会快不少。**两侧都要加。**
 
 ### 第 2 个 cell：把 `benchmark_qwen7b.py` 整段粘进来
 
