@@ -52,11 +52,29 @@ xformers = 'xformers==' + {'2.10':'0.0.34','2.9':'0.0.33.post1','2.8':'0.0.32.po
 | `ImportError: Using bitsandbytes 4-bit quantization requires bitsandbytes` | 这个 notebook 没跑安装格，或跑了但失败了 |
 | 版本表里 `trl : (未安装)` / `bitsandbytes : (未安装)` | 同上——这两个包都是安装格装的，Colab 不预装 |
 | `transformers : 5.17.0`（不是 4.56.2） | 安装格没生效；官方格会把它降级钉死 |
+| `ModuleNotFoundError: No module named 'structlog'`（或 tyro / msgspec / cut_cross_entropy） | 安装格跑成功了，但漏了 `--no-deps` 带出来的运行期依赖。补 `!pip install --no-deps structlog tyro msgspec cut_cross_entropy`，重启会话。**只在 unsloth 侧会遇到** |
 | `You are sending unauthenticated requests to the HF Hub` | 只是提示，`Qwen/Qwen2.5-7B` 不需要 token；被限流时再设 `HF_TOKEN` |
 
 **根因只有两个**：① Colab 的运行时**按 notebook 独立**——在 Unsloth 那个 notebook 装过不算，另一个必须单独再装一次；② 安装中途失败了你却没看见（习惯给安装格加 `%%capture` 的人常踩这个——它会把 pip 的报错一起吞掉，所以本项目的安装格刻意不加）。
 
-脚本里已经加了预检：环境不对会立刻停下并告诉你缺什么，不会等到快下载完 15GB 权重才炸。
+#### pip 结尾那堆冲突警告，哪些要管
+
+正常装完会打印一长串 `ERROR: pip's dependency resolver ...`。逐条对照，**大部分是噪音**：
+
+| 警告原文 | 要不要管 |
+|---|---|
+| `unsloth ... requires structlog / tyro, which is not installed`<br>`unsloth-zoo ... requires msgspec / cut_cross_entropy / tyro, which is not installed` | **要管**。安装格对这两个包用了 `--no-deps`，它们的运行期依赖不会被自动装。若 `import unsloth` 报错，补一行 `!pip install --no-deps structlog tyro msgspec cut_cross_entropy` 再重启 |
+| `unsloth ... requires trl<=0.24.0, but you have trl 1.14.1`<br>`trl 1.14.1 requires datasets>=4.7.0, but you have datasets 4.3.0` | **不管**。"钉版本"之前的中间态：Colab 预装的 trl 1.14.1 这时还没被换掉。最后一行 `!pip install --no-deps trl==0.22.2` 跑完就消失 |
+| `gradio ... requires huggingface-hub>=1.16.0, but you have huggingface-hub 0.36.2`<br>`diffusers ... requires huggingface-hub>=1.23.0` | **不管**。Colab 预装的，跑微调用不到；而 `transformers==4.56.2` 本身就要求 `huggingface-hub<1.0`，**降到 0.36.2 是预期行为** |
+
+**装成功的判据**——最后两行必须长这样（顺序可能不同）：
+
+```
+Successfully installed huggingface-hub-0.36.2 tokenizers-0.22.2 transformers-4.56.2
+Successfully installed trl-0.22.2
+```
+
+脚本里已经加了预检：环境不对会立刻停下并告诉你缺什么；**unsloth 侧还会先真 `import unsloth` 试一次**，所以那四个漏装的依赖会在**下 15GB 权重之前**就被拦下，不会白等。
 
 ### 第 2 个 cell：把 `benchmark_qwen7b.py` 整段粘进来
 

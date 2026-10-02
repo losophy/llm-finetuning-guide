@@ -191,6 +191,22 @@ if transformers.__version__.split(".")[0] != "4":
     print("⚠️ transformers =", transformers.__version__,
           "；官方安装格会把它钉成 4.56.2 —— 确认安装格真的跑过了。")
 
+# 安装格对 unsloth / unsloth_zoo 用的是 --no-deps，它们自己的运行期依赖
+# （structlog、tyro、msgspec、cut_cross_entropy）不会被自动装上。
+# 缺了会在 import 这一层就炸 —— 那就放在这里炸，还顺手带上修复命令，
+# 而不是等 15GB 权重下完再报。
+if SIDE == "unsloth":
+    try:
+        from unsloth import FastLanguageModel  # noqa: F401
+    except ModuleNotFoundError as _e:
+        raise RuntimeError(
+            f"import unsloth 失败：缺少 {_e.name}\n"
+            "→ 安装格用了 --no-deps，unsloth / unsloth_zoo 的运行期依赖不会自动装。补一次：\n"
+            "    !pip install --no-deps structlog tyro msgspec cut_cross_entropy\n"
+            "  装完重启会话，再把本脚本重新粘一遍。\n"
+            "  （务必带 --no-deps：不带会把 transformers / torch 拽走。）"
+        ) from _e
+
 model, tokenizer = load_model()
 train_dataset = build_dataset()
 trainer = build_trainer(model, tokenizer, train_dataset)
