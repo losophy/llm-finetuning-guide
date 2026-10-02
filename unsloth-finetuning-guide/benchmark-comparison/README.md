@@ -17,34 +17,46 @@
 
 ### 第 1 个 cell：环境准备（两个 notebook 必须用**逐字相同**的这一格）
 
-用 Unsloth 官方 notebook 的标准安装格（Colab / Kaggle 通用）：
+取自 Unsloth 官方 notebook 的安装格，**去掉了 if/else 分支**（原因见本节最后一条），Colab / Kaggle 通用：
 
 ```python
-%%capture
-import os, re
-if "COLAB_" not in "".join(os.environ.keys()):
-    !pip install unsloth  # Do this in local & cloud setups
-else:
-    import torch; v = re.match(r'[\d]{1,}\.[\d]{1,}', str(torch.__version__)).group(0)
-    xformers = 'xformers==' + {'2.10':'0.0.34','2.9':'0.0.33.post1','2.8':'0.0.32.post2'}.get(v, "0.0.34")
-    !pip install sentencepiece protobuf "datasets==4.3.0" "huggingface_hub>=0.34.0" hf_transfer
-    !pip install --no-deps unsloth_zoo bitsandbytes accelerate {xformers} peft trl triton unsloth
-    !pip install --no-deps --upgrade "torchao>=0.16.0"
-    !pip install transformers==4.56.2
-    !pip install --no-deps trl==0.22.2
+import re
+import torch
+
+v = re.match(r'[\d]{1,}\.[\d]{1,}', str(torch.__version__)).group(0)
+xformers = 'xformers==' + {'2.10':'0.0.34','2.9':'0.0.33.post1','2.8':'0.0.32.post2'}.get(v, "0.0.34")
+
+!pip install sentencepiece protobuf "datasets==4.3.0" "huggingface_hub>=0.34.0" hf_transfer
+!pip install --no-deps unsloth_zoo bitsandbytes accelerate {xformers} peft trl triton unsloth
+!pip install --no-deps --upgrade "torchao>=0.16.0"
+!pip install transformers==4.56.2
+!pip install --no-deps trl==0.22.2
 ```
 
 几条必须知道的：
 
-- **`%%capture` 会吞掉安装日志**——装失败时屏幕上什么都没有。第一次跑先删掉这一行，确认装成功再加回来。
-- **缩进要原样保留**：`!pip` 写在 if/else 块里靠的是 IPython 的 shell magic，手抄丢了缩进会直接 `SyntaxError`。整格从官方 notebook 复制。
+- **不要加 `%%capture`**：它会把 pip 的报错一起吞掉，装失败时屏幕上看不出任何异常。多几十行日志换"报错可见"，划算。
 - **这几行顺序是有意的**：先 `--no-deps` 装 trl，再单独把版本钉到 0.22.2，防止 trl 的依赖把 transformers 拽走。别重排。
-- **不升级 torch**（只读版本号来选 xformers），所以**不需要重启会话**；若下一格 import 报错，再重启。
+- **不升级 torch**（只读版本号来选 xformers）：在**全新会话里"先装后跑"，不需要重启**。但如果这个会话已经 `import` 过 transformers / trl（比如脚本已经跑过一次），装完**必须重启会话**——否则内存里还是旧版本，脚本读到的仍是 5.x。
+- **xformers 的版本映射只覆盖 torch 2.8 / 2.9 / 2.10**，其它版本会 fallback 到 `0.0.34`。若日后 `import xformers` 报 ABI 错，把 `{xformers}` 从安装格里去掉即可——**两侧都要去**。
 - **版本被钉在** `transformers==4.56.2` / `trl==0.22.2`。基准脚本用到的 `processing_class=` / `max_length=` / `eval_strategy=` 在这个组合里都有，不会因版本报错。但**别在同一个会话里跑项目里按 transformers 5.x 写的其他脚本**。
 - **xformers 会同时装进两侧**（条件因此仍一致），**绝不能只在一侧装**。
-- Kaggle 上检测不到 `COLAB_`，会自动退化成 `!pip install unsloth`——所以这一格两平台通用。
+- **为什么去掉 if/else**：官方格用 `"COLAB_" not in os.environ` 判断平台——本地走 `!pip install unsloth`，云端才走上面这几行。但这个基准只在云端跑，那条本地分支永远执行不到；更麻烦的是**一旦 `COLAB_` 没被检测到，整段安装会被静默跳过、还不报错**（这种失败极难排查）。写成无条件版，少一个失败模式。
 
 > **可选提速**：这一格已经装了 `hf_transfer`。在下一格粘脚本时，于文件开头加一行 `os.environ["HF_HUB_ENABLE_HF_TRANSFER"] = "1"`，下 15GB 的 `Qwen/Qwen2.5-7B` 会快不少。**两侧都要加。**
+
+### 装错了怎么认
+
+| 现象 | 说明 |
+|---|---|
+| `ImportError: Using bitsandbytes 4-bit quantization requires bitsandbytes` | 这个 notebook 没跑安装格，或跑了但失败了 |
+| 版本表里 `trl : (未安装)` / `bitsandbytes : (未安装)` | 同上——这两个包都是安装格装的，Colab 不预装 |
+| `transformers : 5.17.0`（不是 4.56.2） | 安装格没生效；官方格会把它降级钉死 |
+| `You are sending unauthenticated requests to the HF Hub` | 只是提示，`Qwen/Qwen2.5-7B` 不需要 token；被限流时再设 `HF_TOKEN` |
+
+**根因只有两个**：① Colab 的运行时**按 notebook 独立**——在 Unsloth 那个 notebook 装过不算，另一个必须单独再装一次；② 安装中途失败了你却没看见（习惯给安装格加 `%%capture` 的人常踩这个——它会把 pip 的报错一起吞掉，所以本项目的安装格刻意不加）。
+
+脚本里已经加了预检：环境不对会立刻停下并告诉你缺什么，不会等到快下载完 15GB 权重才炸。
 
 ### 第 2 个 cell：把 `benchmark_qwen7b.py` 整段粘进来
 

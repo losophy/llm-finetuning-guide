@@ -171,6 +171,26 @@ for pkg in ("torch", "transformers", "trl", "peft", "bitsandbytes", "accelerate"
         print(f"{pkg:<14} : (未安装)")
 print("=" * 60)
 
+# ── 预检：确认"环境准备格"在本 notebook 里真的跑成功了 ────────────────
+# 少装一个包，报错会发生在很深的地方（例如 bitsandbytes 要到加载模型时才炸），
+# 这里提前拦下来，直接告诉你去做什么。
+import importlib.util
+import transformers
+
+_missing = [p for p in ("trl", "bitsandbytes", "peft", "accelerate", "datasets")
+            if importlib.util.find_spec(p) is None]
+if _missing:
+    raise RuntimeError(
+        "缺少依赖：" + ", ".join(_missing) + "\n"
+        "→ 这个 notebook 没跑过（或没跑成）环境准备格。检查三件事：\n"
+        "  1) Colab 的运行时按 notebook 独立，每个 notebook 都要单独跑一次安装格；\n"
+        "  2) 安装格里的 %%capture 会吞掉报错，调试时先删掉它；\n"
+        "  3) 若本会话已 import 过 transformers，装完要重启会话。"
+    )
+if transformers.__version__.split(".")[0] != "4":
+    print("⚠️ transformers =", transformers.__version__,
+          "；官方安装格会把它钉成 4.56.2 —— 确认安装格真的跑过了。")
+
 model, tokenizer = load_model()
 train_dataset = build_dataset()
 trainer = build_trainer(model, tokenizer, train_dataset)

@@ -109,30 +109,30 @@ print(f"VRAM: {torch.cuda.get_device_properties(0).total_memory / 1e9:.1f} GB")
 
 **步骤 2：安装 Unsloth**
 
-用官方 notebook 的标准安装格（Colab / Kaggle 通用，版本已钉死在 Unsloth 测试过的组合上）：
+取自 Unsloth 官方 notebook 的安装格，**去掉了 if/else 分支**（原因见下），Colab / Kaggle 通用，版本已钉死在 Unsloth 测试过的组合上：
 
 ```python
-%%capture
-import os, re
-if "COLAB_" not in "".join(os.environ.keys()):
-    !pip install unsloth  # Do this in local & cloud setups
-else:
-    import torch; v = re.match(r'[\d]{1,}\.[\d]{1,}', str(torch.__version__)).group(0)
-    xformers = 'xformers==' + {'2.10':'0.0.34','2.9':'0.0.33.post1','2.8':'0.0.32.post2'}.get(v, "0.0.34")
-    !pip install sentencepiece protobuf "datasets==4.3.0" "huggingface_hub>=0.34.0" hf_transfer
-    !pip install --no-deps unsloth_zoo bitsandbytes accelerate {xformers} peft trl triton unsloth
-    !pip install --no-deps --upgrade "torchao>=0.16.0"
-    !pip install transformers==4.56.2
-    !pip install --no-deps trl==0.22.2
+import re
+import torch
+
+v = re.match(r'[\d]{1,}\.[\d]{1,}', str(torch.__version__)).group(0)
+xformers = 'xformers==' + {'2.10':'0.0.34','2.9':'0.0.33.post1','2.8':'0.0.32.post2'}.get(v, "0.0.34")
+
+!pip install sentencepiece protobuf "datasets==4.3.0" "huggingface_hub>=0.34.0" hf_transfer
+!pip install --no-deps unsloth_zoo bitsandbytes accelerate {xformers} peft trl triton unsloth
+!pip install --no-deps --upgrade "torchao>=0.16.0"
+!pip install transformers==4.56.2
+!pip install --no-deps trl==0.22.2
 ```
 
 几个坑：
 
-- **`%%capture` 会吞掉安装日志**，装失败时屏幕上什么都没有。调试时先删掉这一行。
-- **缩进要原样保留**：`!pip` 在 if/else 块里靠的是 IPython 的 shell magic，手抄丢了缩进会 `SyntaxError`。
+- **不要加 `%%capture`**：它会把 pip 的报错一起吞掉，装失败时屏幕上看不出异常。
 - **这几行顺序是有意的**（先 `--no-deps` 装 trl，再单独钉版本），别重排。
-- 这格**不升级 torch**，所以**不需要重启会话**；下一格 import 报错再重启。
-- 装完的版本是 `transformers==4.56.2` / `trl==0.22.2`；本文示例代码（`processing_class=` / `max_length=` / `eval_strategy=`）都在这个组合内可用。
+- 这格**不升级 torch**，所以在全新会话里"先装后跑"**不需要重启**；但若本会话已经 `import` 过 transformers / trl，装完**必须重启**，否则内存里还是旧版本。
+- **Colab 的运行时是按 notebook 独立的**：在别的 notebook 装过不算，每个 notebook 都要单独跑一次这一格。
+- **为什么去掉 if/else**：官方格用 `"COLAB_" not in os.environ` 判断平台（本地走 `!pip install unsloth`，云端走上面几行）。这个判断一旦在云端失效，整段安装会被**静默跳过且不报错**——这种失败最难查。这里只在云端跑，所以直接写无条件版。
+- **怎么确认装对了**：`trl` / `bitsandbytes` 都是这一格装的（Colab 不预装），跑完 `import trl, bitsandbytes` 不报错即成功；版本应为 `transformers==4.56.2` / `trl==0.22.2`，本文示例代码（`processing_class=` / `max_length=` / `eval_strategy=`）都在这个组合内可用。
 
 **步骤 3：挂载 Google Drive**（用于持久化数据和检查点）
 
@@ -150,7 +150,9 @@ drive.mount('/content/drive')
 
 **步骤 2：安装 Unsloth**
 
-**不用单独写**——直接复制 2.1 步骤 2 那一段。那一格检测不到 `COLAB_` 环境变量时会自动走 `!pip install unsloth` 分支，正是 Kaggle 需要的行为；Colab / Kaggle 共用同一格。
+**不用单独写**——直接复制 2.1 步骤 2 那一段。那一格是无条件版，Kaggle 上照跑即可，两个平台的版本钉法完全相同。
+
+> **平台唯一的差异**：Kaggle 必须先打开 Internet（步骤 1），否则 `pip` 装不了、数据集也下不来。
 
 ### 2.3 存储与断线续训
 
