@@ -415,7 +415,6 @@ print("=" * 60)
 # 少装一个包，报错会发生在很深的地方（例如 bitsandbytes 要到加载模型时才炸），
 # 这里提前拦下来，直接告诉你去做什么。
 import importlib.util
-import transformers
 
 _missing = [p for p in ("trl", "bitsandbytes", "peft", "accelerate", "datasets")
             if importlib.util.find_spec(p) is None]
@@ -427,8 +426,15 @@ if _missing:
         "  2) 安装格里的 %%capture 会吞掉报错，调试时先删掉它；\n"
         "  3) 若本会话已 import 过 transformers，装完要重启会话。"
     )
-if transformers.__version__.split(".")[0] != "4":
-    print("⚠️ transformers =", transformers.__version__,
+
+# ⚠️ 这里刻意【不】import transformers。
+#   Unsloth 必须在 transformers 之前导入，否则它的一部分优化不生效，会打出
+#   "Unsloth should be imported before [transformers]" 警告 —— 那对照就不公平了。
+#   查版本用 importlib.metadata 就够了，它只是读元数据，不会把包导进内存。
+#   因此本项目全程不出现 `import transformers`，下面那次 unsloth 导入是第一次导入。
+_tf_ver = md.version("transformers")
+if _tf_ver.split(".")[0] != "4":
+    print("⚠️ transformers =", _tf_ver,
           "；官方安装格会把它钉成 4.56.2 —— 确认安装格真的跑过了。")
 
 # 安装格对 unsloth / unsloth_zoo 用的是 --no-deps，它们自己的运行期依赖
@@ -494,6 +500,15 @@ print("保留显存(GB) :", torch.cuda.max_memory_reserved() / 1e9)
 3. **跑 2~3 次取平均。** 单次数字有噪声，尤其耗时。
 
 另外，两侧打印的库版本（torch / transformers / trl / peft / bitsandbytes）也应一致——这就是为什么要用 4.2 那一格逐字相同的安装格。
+
+> **导入顺序也算一条口径（Unsloth 侧）**：必须让 Unsloth 比 `transformers` 先导入。若先 `import transformers`，Unsloth 会打出
+>
+> ```
+> UserWarning: WARNING: Unsloth should be imported before [transformers] to ensure all
+> optimizations are applied. Your code may run slower or encounter memory issues...
+> ```
+>
+> 也就是说**它的部分优化没生效**——那样测出来的耗时对 Unsloth 不公平。4.3 的代码已经规避了这点：全篇不出现 `import transformers`，查版本改用 `importlib.metadata`（只读元数据、不导入包），所以预检里那次 `from unsloth import FastLanguageModel` 就是第一次导入。**看到这条警告，说明数字要重跑。**
 
 ### 4.5 降档预案
 
