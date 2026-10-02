@@ -4,6 +4,8 @@
 >
 > 它**不教微调**。训练步骤见 `Unsloth微调实战指南.md` 第四章；原理推导见 `LoRA与QLoRA微调大语言模型完整指南.md`。
 >
+> 第四节是**可照跑的完整基准**（Colab / Kaggle + Qwen2.5-7B）：安装格、基准代码、口径、降档预案、结果表**全在本文档内**，没有单独的脚本文件。
+>
 > **一句话结论**：Unsloth = HF 生态之上的**算子级加速层**——接口兼容 HF，内核替换 HF。
 
 ---
@@ -140,20 +142,317 @@ HuggingFace 官方博客的原话：
 
 ### 4.1 前提：必须同条件
 
-条件不对齐，数字就没有意义。两侧必须完全一致：
+条件不对齐，数字就没有意义。两侧必须完全一致——下表就是 4.3 那段代码顶部「公共口径」区的全部内容：
 
-- **同一基座模型**（两侧用同一份权重）
-- **同一份数据、同一采样量**
-- **同一套超参**：batch_size、gradient_accumulation_steps、max_length、learning_rate、r / lora_alpha
-- **用 `max_steps` 固定步数**（例如 60 步），**不要用 epochs**——否则两侧数据量不同就不可比
-- 两侧都**关闭 eval**
-- **原生侧不要手动装 Flash Attention 2**，用 PyTorch 默认的 SDPA 即可（T4 上装 FA2 麻烦，且会改变对比口径）
+| 项 | 值 |
+|---|---|
+| 基座 | `Qwen/Qwen2.5-7B`（两侧同一份权重，各自加载时做 4-bit nf4 量化） |
+| 数据 | `yahma/alpaca-cleaned`，`shuffle(seed=42).select(range(2000))` |
+| 模板 | Alpaca `### Instruction / ### Input / ### Response` |
+| 最大长度 | 2048 |
+| 步数 | `max_steps=60`（**不用 epochs**——否则两侧数据量不同就不可比） |
+| batch / 累积 | 2 / 4 |
+| 学习率 | 2e-4，cosine，warmup 10 步 |
+| 优化器 | `adamw_8bit` |
+| LoRA | r=16 / alpha=32 / dropout=0 / `target_modules` 7 个（q,k,v,o,gate,up,down） |
+| 精度 | fp16（T4 无 bf16） |
+| eval | 两侧都关闭 |
 
-### 4.2 采集代码（两侧共用）
+几条容易踩的：
 
-基准脚本：`unsloth-finetuning-guide/benchmark-comparison/benchmark_qwen7b.py`。**两侧是同一个文件**——顶部 `SIDE` 一行切换 `"unsloth"` / `"native"`，数据、超参、采集代码物理共用，只有 `load_model()` 分叉。下面这段是该脚本的原文：
+1. **不用 `unsloth/Qwen2.5-7B-bnb-4bit`。** 预量化权重和加载时量化可能不完全等价，会被质疑"权重来源不一致"。两侧都用官方 `Qwen/Qwen2.5-7B`。
+2. **`target_modules` 必须都是 7 个。** 仓库里 `finetune_basic.py` 是 7 个、原生脚本是 4 个——直接拿那两个脚本比，可训练参数量不同，耗时不可比。
+3. **精度写死 fp16。** 别用 `torch.cuda.is_bf16_supported()` 自动判断，换到 L4 / A100 两侧就会不一致。
+4. **原生侧不要手动装 Flash Attention 2**，用 PyTorch 默认的 SDPA 即可（T4 上装 FA2 麻烦，且会改变对比口径）。
+5. **梯度检查点两侧对称**：Unsloth 用 `use_gradient_checkpointing="unsloth"`，原生用 `gradient_checkpointing_enable()`。这是被测量的差异本身，不算不公。
+6. **显存口径**：`reset_peak_memory_stats()` 在 `train()` **之前**调用，所以报的是**训练阶段峰值，不含模型加载**。填表时别当成整机峰值。
+
+### 4.2 环境准备：安装格（两个 notebook 必须用逐字相同的这一格）
+
+取自 Unsloth 官方 notebook 的标准安装格，**去掉了 if/else 分支**，Colab / Kaggle 通用：
 
 ```python
+import re
+import torch
+
+v = re.match(r'[\d]{1,}\.[\d]{1,}', str(torch.__version__)).group(0)
+xformers = 'xformers==' + {'2.10':'0.0.34','2.9':'0.0.33.post1','2.8':'0.0.32.post2'}.get(v, "0.0.34")
+
+!pip install sentencepiece protobuf "datasets==4.3.0" "huggingface_hub>=0.34.0" hf_transfer
+!pip install --no-deps unsloth_zoo bitsandbytes accelerate {xformers} peft trl triton unsloth
+!pip install --no-deps --upgrade "torchao>=0.16.0"
+!pip install transformers==4.56.2
+!pip install --no-deps trl==0.22.2
+```
+
+几条必须知道的：
+
+- **不要加 `%%capture`**：它会把 pip 的报错一起吞掉，装失败时屏幕上看不出任何异常。多几十行日志换"报错可见"，划算。
+- **这几行顺序是有意的**：先 `--no-deps` 装 trl，再单独把版本钉到 0.22.2，防止 trl 的依赖把 transformers 拽走。别重排。
+- **不升级 torch**（只读版本号来选 xformers）：在**全新会话里"先装后跑"，不需要重启**。但如果这个会话已经 `import` 过 transformers / trl（比如代码已经跑过一次），装完**必须重启会话**——否则内存里还是旧版本，代码读到的仍是 5.x。
+- **xformers 的版本映射只覆盖 torch 2.8 / 2.9 / 2.10**，其它版本会 fallback 到 `0.0.34`。若日后 `import xformers` 报 ABI 错，把 `{xformers}` 从安装格里去掉即可——**两侧都要去**。
+- **版本被钉在** `transformers==4.56.2` / `trl==0.22.2`。4.3 代码用到的 `processing_class=` / `max_length=` / `eval_strategy=` 在这个组合里都有，不会因版本报错。但**别在同一个会话里跑项目里按 transformers 5.x 写的其他脚本**。
+- **xformers 会同时装进两侧**（条件因此仍一致），**绝不能只在一侧装**。
+- **为什么去掉 if/else**：官方格用 `"COLAB_" not in os.environ` 判断平台——本地走 `!pip install unsloth`，云端才走上面这几行。但这个基准只在云端跑，那条本地分支永远执行不到；更麻烦的是**一旦 `COLAB_` 没被检测到，整段安装会被静默跳过、还不报错**（这种失败极难排查）。写成无条件版，少一个失败模式。
+
+> **可选提速**：这一格已经装了 `hf_transfer`。在 4.3 那段代码**最开头**加一行 `os.environ["HF_HUB_ENABLE_HF_TRANSFER"] = "1"`，下 15GB 的 `Qwen/Qwen2.5-7B` 会快不少。**两侧都要加。**
+
+**装错了怎么认**
+
+| 现象 | 说明 |
+|---|---|
+| `ImportError: Using bitsandbytes 4-bit quantization requires bitsandbytes` | 这个 notebook 没跑安装格，或跑了但失败了 |
+| 版本表里 `trl : (未安装)` / `bitsandbytes : (未安装)` | 同上——这两个包都是安装格装的，Colab 不预装 |
+| `transformers : 5.17.0`（不是 4.56.2） | 安装格没生效 |
+| `ModuleNotFoundError: No module named 'structlog'`（或 tyro / msgspec / cut_cross_entropy） | 安装格跑成功了，但漏了 `--no-deps` 带出来的运行期依赖。补 `!pip install --no-deps structlog tyro msgspec cut_cross_entropy`，重启会话。**只在 Unsloth 侧会遇到** |
+| `You are sending unauthenticated requests to the HF Hub` | 只是提示，`Qwen/Qwen2.5-7B` 不需要 token；被限流时再设 `HF_TOKEN` |
+
+**根因只有两个**：① Colab 的运行时**按 notebook 独立**——在别的 notebook 装过不算，每个 notebook 都要单独跑一次这一格；② 安装中途失败了你却没看见（习惯给安装格加 `%%capture` 的人常踩这个，所以本项目的安装格刻意不加）。
+
+**pip 结尾那堆冲突警告，哪些要管**——正常装完会打印一长串 `ERROR: pip's dependency resolver ...`。逐条对照，**大部分是噪音**：
+
+| 警告原文 | 要不要管 |
+|---|---|
+| `unsloth ... requires structlog / tyro, which is not installed`<br>`unsloth-zoo ... requires msgspec / cut_cross_entropy / tyro, which is not installed` | **要管**。安装格对这两个包用了 `--no-deps`，它们的运行期依赖不会被自动装。若 `import unsloth` 报错，补一行 `!pip install --no-deps structlog tyro msgspec cut_cross_entropy` 再重启 |
+| `unsloth ... requires trl<=0.24.0, but you have trl 1.14.1`<br>`trl 1.14.1 requires datasets>=4.7.0, but you have datasets 4.3.0` | **不管**。"钉版本"之前的中间态：Colab 预装的 trl 1.14.1 这时还没被换掉，最后一行 `!pip install --no-deps trl==0.22.2` 跑完就消失 |
+| `gradio ... requires huggingface-hub>=1.16.0, but you have huggingface-hub 0.36.2`<br>`diffusers ... requires huggingface-hub>=1.23.0` | **不管**。Colab 预装的，跑微调用不到；而 `transformers==4.56.2` 本身就要求 `huggingface-hub<1.0`，**降到 0.36.2 是预期行为** |
+
+**装成功的判据**——最后两行必须长这样（顺序可能不同）：
+
+```
+Successfully installed huggingface-hub-0.36.2 tokenizers-0.22.2 transformers-4.56.2
+Successfully installed trl-0.22.2
+```
+
+下面 4.3 那段代码里已经加了预检：环境不对会立刻停下并告诉你缺什么；**Unsloth 侧还会先真 `import unsloth` 试一次**，所以那四个漏装的依赖会在**下 15GB 权重之前**就被拦下，不会白等。
+
+### 4.3 基准代码（两侧共用，唯一真源）
+
+**代码全仓库只有这一份**——粘进 Colab 那个 cell 的就是它本身，没有独立的 `.py`，不会出现"文件改了、文档没跟上"。跑之前只改下面这一行：
+
+```python
+SIDE = "unsloth"   # 另一个 notebook 填 "native"，其余一字不改
+```
+
+为什么只有一份：同条件对照最大的风险是"两侧配置悄悄漂移"。数据、超参、采集代码物理上共用同一段，只有 `load_model()` 分叉——口径不可能不一致。
+
+```python
+"""Qwen2.5-7B QLoRA 同条件性能基准：Unsloth vs 原生 HuggingFace
+
+用途：跑出《Unsloth与原生HuggingFace对照.md》第四节 4.6 结果表要填的数字。
+
+怎么跑（Colab / Kaggle 免费 GPU，T4 16GB）：
+    1) 先建一个 notebook，跑 4.2 的"环境准备格"
+    2) 把下面这整段粘进下一个 cell
+    3) 只改下面 SIDE 这一行，跑一次
+    4) 再新建一个 notebook（或重启运行时）跑另一侧
+
+⚠️ 两侧必须在两个独立 notebook / 独立进程里跑。
+   import unsloth 会在导入时全局改写 HF 的模型实现，
+   同一个会话里连跑两侧，原生侧会被污染，数字作废。
+"""
+
+SIDE = "unsloth"  # ← 只改这一行："unsloth" 或 "native"
+
+import torch
+
+# ── 公共口径：两侧必须完全一致 ──────────────────────────────────
+# 这两个分支只允许在 load_model() 里分叉，禁止在分支内覆盖下面的任何常量。
+MODEL_NAME = "Qwen/Qwen2.5-7B"      # 两侧同一份权重，各自在加载时做 4-bit 量化
+DATASET_NAME = "yahma/alpaca-cleaned"
+NUM_SAMPLES = 2000                  # 固定抽样条数（shuffle + select，种子固定）
+SEED = 42
+
+MAX_SEQ_LEN = 2048
+MAX_STEPS = 60                      # 固定步数（不用 epochs），保证两侧训练量相同
+BATCH_SIZE = 2
+GRAD_ACCUM = 4
+LEARNING_RATE = 2e-4
+WARMUP_STEPS = 10
+LR_SCHEDULER = "cosine"
+OPTIM = "adamw_8bit"
+
+LORA_R = 16
+LORA_ALPHA = 32
+LORA_DROPOUT = 0
+# 两侧必须同为 7 个（含 MLP），否则可训练参数量不同，耗时不可比
+TARGET_MODULES = ["q_proj", "k_proj", "v_proj", "o_proj",
+                  "gate_proj", "up_proj", "down_proj"]
+
+OUTPUT_DIR = f"./bench-{SIDE}"
+
+# T4 不支持 bf16 → 两侧都强制 fp16。
+# 不要用 torch.cuda.is_bf16_supported() 自动判断：换到 L4 / A100 会让两侧口径不一致。
+COMPUTE_DTYPE = torch.float16
+
+
+def format_prompt(sample):
+    """Alpaca 模板（与 unsloth-finetuning-guide/finetune_basic.py 一致）"""
+    if str(sample.get("input", "")).strip():
+        return f"""### Instruction:
+{sample['instruction']}
+
+### Input:
+{sample['input']}
+
+### Response:
+{sample['output']}"""
+    return f"""### Instruction:
+{sample['instruction']}
+
+### Response:
+{sample['output']}"""
+
+
+def build_dataset():
+    """固定种子抽样，两侧得到逐字相同的数据"""
+    from datasets import load_dataset
+    ds = load_dataset(DATASET_NAME, split="train")
+    ds = ds.shuffle(seed=SEED).select(range(NUM_SAMPLES))
+    return ds.map(lambda x: {"text": format_prompt(x)})
+
+
+def load_model():
+    """唯一允许两侧分叉的地方"""
+    if SIDE == "unsloth":
+        from unsloth import FastLanguageModel  # 延迟导入：只有这一侧才 import
+        model, tokenizer = FastLanguageModel.from_pretrained(
+            model_name=MODEL_NAME,
+            max_seq_length=MAX_SEQ_LEN,
+            dtype=COMPUTE_DTYPE,
+            load_in_4bit=True,
+        )
+        model = FastLanguageModel.get_peft_model(
+            model,
+            r=LORA_R,
+            lora_alpha=LORA_ALPHA,
+            lora_dropout=LORA_DROPOUT,
+            target_modules=TARGET_MODULES,
+            bias="none",
+            use_gradient_checkpointing="unsloth",
+            random_state=SEED,
+        )
+        return model, tokenizer
+
+    if SIDE == "native":
+        from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
+        from peft import LoraConfig, TaskType, get_peft_model
+
+        tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
+        tokenizer.pad_token = tokenizer.eos_token
+        model = AutoModelForCausalLM.from_pretrained(
+            MODEL_NAME,
+            quantization_config=BitsAndBytesConfig(
+                load_in_4bit=True,
+                bnb_4bit_quant_type="nf4",
+                bnb_4bit_compute_dtype=COMPUTE_DTYPE,
+                bnb_4bit_use_double_quant=True,
+            ),
+            device_map="auto",
+        )
+        model.config.use_cache = False          # 与梯度检查点不兼容
+        model.gradient_checkpointing_enable()   # 对齐 Unsloth 侧的 use_gradient_checkpointing
+        model.enable_input_require_grads()      # 让梯度到达 LoRA adapter
+        model = get_peft_model(model, LoraConfig(
+            r=LORA_R,
+            lora_alpha=LORA_ALPHA,
+            lora_dropout=LORA_DROPOUT,
+            bias="none",
+            task_type=TaskType.CAUSAL_LM,
+            target_modules=TARGET_MODULES,
+        ))
+        return model, tokenizer
+
+    raise ValueError(f'SIDE 只能填 "unsloth" 或 "native"，当前是 {SIDE!r}')
+
+
+def build_trainer(model, tokenizer, train_dataset):
+    """两侧共用同一个训练器配置"""
+    from trl import SFTConfig, SFTTrainer
+    return SFTTrainer(
+        model=model,
+        processing_class=tokenizer,
+        train_dataset=train_dataset,
+        args=SFTConfig(
+            output_dir=OUTPUT_DIR,
+            dataset_text_field="text",
+            max_length=MAX_SEQ_LEN,
+            max_steps=MAX_STEPS,            # 固定步数，不用 num_train_epochs
+            per_device_train_batch_size=BATCH_SIZE,
+            gradient_accumulation_steps=GRAD_ACCUM,
+            learning_rate=LEARNING_RATE,
+            warmup_steps=WARMUP_STEPS,
+            lr_scheduler_type=LR_SCHEDULER,
+            optim=OPTIM,
+            fp16=True,                      # T4 无 bf16
+            bf16=False,
+            eval_strategy="no",             # 两侧都关 eval
+            save_strategy="no",             # 不写 checkpoint，避免磁盘干扰
+            logging_steps=10,
+            report_to="none",
+            seed=SEED,
+        ),
+    )
+
+
+# ── 主流程 ────────────────────────────────────────────────────
+import importlib.metadata as md
+
+print("=" * 60)
+print("对照侧        :", SIDE)
+print("模型          :", MODEL_NAME)
+print("设备          :", torch.cuda.get_device_name(0))
+print("显存(GB)      :", torch.cuda.get_device_properties(0).total_memory / 1e9)
+for pkg in ("torch", "transformers", "trl", "peft", "bitsandbytes", "accelerate"):
+    try:
+        print(f"{pkg:<14} :", md.version(pkg))
+    except md.PackageNotFoundError:
+        print(f"{pkg:<14} : (未安装)")
+print("=" * 60)
+
+# ── 预检：确认"环境准备格"在本 notebook 里真的跑成功了 ────────────────
+# 少装一个包，报错会发生在很深的地方（例如 bitsandbytes 要到加载模型时才炸），
+# 这里提前拦下来，直接告诉你去做什么。
+import importlib.util
+import transformers
+
+_missing = [p for p in ("trl", "bitsandbytes", "peft", "accelerate", "datasets")
+            if importlib.util.find_spec(p) is None]
+if _missing:
+    raise RuntimeError(
+        "缺少依赖：" + ", ".join(_missing) + "\n"
+        "→ 这个 notebook 没跑过（或没跑成）4.2 的环境准备格。检查三件事：\n"
+        "  1) Colab 的运行时按 notebook 独立，每个 notebook 都要单独跑一次安装格；\n"
+        "  2) 安装格里的 %%capture 会吞掉报错，调试时先删掉它；\n"
+        "  3) 若本会话已 import 过 transformers，装完要重启会话。"
+    )
+if transformers.__version__.split(".")[0] != "4":
+    print("⚠️ transformers =", transformers.__version__,
+          "；官方安装格会把它钉成 4.56.2 —— 确认安装格真的跑过了。")
+
+# 安装格对 unsloth / unsloth_zoo 用的是 --no-deps，它们自己的运行期依赖
+# （structlog、tyro、msgspec、cut_cross_entropy）不会被自动装上。
+# 缺了会在 import 这一层就炸 —— 那就放在这里炸，还顺手带上修复命令，
+# 而不是等 15GB 权重下完再报。
+if SIDE == "unsloth":
+    try:
+        from unsloth import FastLanguageModel  # noqa: F401
+    except ModuleNotFoundError as _e:
+        raise RuntimeError(
+            f"import unsloth 失败：缺少 {_e.name}\n"
+            "→ 安装格用了 --no-deps，unsloth / unsloth_zoo 的运行期依赖不会自动装。补一次：\n"
+            "    !pip install --no-deps structlog tyro msgspec cut_cross_entropy\n"
+            "  装完重启会话，再把上面整段代码重新粘一遍。\n"
+            "  （务必带 --no-deps：不带会把 transformers / torch 拽走。）"
+        ) from _e
+
+model, tokenizer = load_model()
+train_dataset = build_dataset()
+trainer = build_trainer(model, tokenizer, train_dataset)
+model.print_trainable_parameters()
+print("-" * 60)
+
+# ↓↓↓ 采集段：四项指标即 4.6 结果表的来源，改动要同步 4.1 的口径表 ↓↓↓
 import torch
 torch.cuda.reset_peak_memory_stats()          # 必须在 train 之前调用
 
@@ -163,25 +462,35 @@ print("耗时(s)      :", res.metrics["train_runtime"])
 print("每秒样本数   :", res.metrics.get("train_samples_per_second"))
 print("峰值显存(GB) :", torch.cuda.max_memory_allocated() / 1e9)
 print("保留显存(GB) :", torch.cuda.max_memory_reserved() / 1e9)
+# ↑↑↑ 采集段 ↑↑↑
 ```
 
-> **口径注意**：`reset_peak_memory_stats()` 在 `train()` **之前**调用，所以报的是**训练阶段峰值，不含模型加载**。填表时别当成整机峰值。
+跑完把控制台输出的那段（设备 / 版本 / 可训练参数 / 四项指标）抄进 **4.6 的表**。
 
-### 4.3 两侧怎么跑
+> Colab 免费档给的是 **T4 16GB**。Qwen2.5-7B 的 4-bit QLoRA 在 T4 上两侧都能跑，但原生侧更吃显存，遇到 OOM 看 **4.5 降档预案**。
 
-在 Colab / Kaggle 各建**两个独立 notebook**，跑一次只跑一侧：
+### 4.4 两侧怎么跑：三条硬规则
 
-```python
-SIDE = "unsloth"    # 另一个 notebook 填 "native"，其余一字不改
-```
+在 Colab / Kaggle 各建**两个独立 notebook**，一次只跑一侧（先跑哪侧不限）：
 
-- **必须独立 notebook（或独立进程）**：`import unsloth` 会在导入时全局改写 HF 的模型实现，同一会话连跑两侧，原生侧数字直接作废。
-- **两侧用同一格 install cell**，打印出的库版本（torch / transformers / trl / peft / bitsandbytes）必须一致。
-- **两侧必须同一型号 GPU**（T4 与 L4 不可混在一张表里）；脚本会打印 `torch.cuda.get_device_name(0)`，跑之前确认。
-- 统一口径：基座统一 `Qwen/Qwen2.5-7B`（各自加载时量化，不用预量化仓）；`target_modules` 统一 7 个；精度统一 fp16（T4 无 bf16）；原生侧不装 Flash Attention 2；跑 2~3 次取平均。
-- 完整的九条口径、降档预案与结果记录表见 `unsloth-finetuning-guide/benchmark-comparison/README.md`。
+1. **两侧必须独立 notebook / 独立进程。** `import unsloth` 会在导入时全局改写 HF 的模型实现，同一会话里连跑两侧，原生侧的数字直接作废。
+2. **两侧必须同一型号 GPU。** 4.3 代码第一段就会打印 `torch.cuda.get_device_name(0)`；T4 与 L4 的数字不可混在一张表里。Colab 分配是随机的，两次跑之前都确认一下。
+3. **跑 2~3 次取平均。** 单次数字有噪声，尤其耗时。
 
-### 4.4 结果表（待填）
+另外，两侧打印的库版本（torch / transformers / trl / peft / bitsandbytes）也应一致——这就是为什么要用 4.2 那一格逐字相同的安装格。
+
+### 4.5 降档预案
+
+只有一条铁律：**要降就两侧一起降，绝不能只降一边。**
+
+| 症状 | 处理 |
+|---|---|
+| 原生侧 OOM，Unsloth 侧正常 | 两侧同时 `MAX_SEQ_LEN` → 1024、`BATCH_SIZE` → 1、`GRAD_ACCUM` → 8 |
+| 还 OOM | 两侧同时 `MAX_SEQ_LEN=512` |
+| 7B 两侧都跑不动 | 两侧一起换 `Qwen/Qwen2.5-3B`，并在表下注明换了模型 |
+| Colab 会话中断 | `MAX_STEPS` 调小（如 30）后两侧重跑；两侧步数必须一致 |
+
+### 4.6 结果表（待填）
 
 | 指标 | Unsloth | 原生 HF | 倍数 / 差异 |
 |---|---|---|---|
@@ -192,9 +501,16 @@ SIDE = "unsloth"    # 另一个 notebook 填 "native"，其余一字不改
 
 > **填表前先自检**：两侧"可训练参数量"必须**完全相同**。不一致说明 `target_modules` / `r` / `alpha` 有一侧漂了，这组数字作废。
 
-**环境脚注（每次填表都要写）**：GPU 型号 · 库版本（torch / transformers / trl / peft / bitsandbytes）· `max_steps` · `max_length` · batch × accum · `target_modules` · 跑了几次是否取平均。模板见 `unsloth-finetuning-guide/benchmark-comparison/README.md` 第五节。
+**环境脚注（每次都要填）**
 
-### 4.5 官方公开数字（**非本人实测，仅作量级参考**）
+- GPU 型号：______（`torch.cuda.get_device_name(0)`）
+- 库版本：torch ___ / transformers ___ / trl ___ / peft ___ / bitsandbytes ___
+- `max_steps=60`，`max_length=2048`，batch 2 × accum 4
+- `target_modules`：q,k,v,o,gate,up,down（7 个）
+- 跑了几次、是否取平均：______
+- 「可训练参数量」两侧应完全相同——不一致说明口径漂了，数字作废
+
+### 4.7 官方公开数字（**非本人实测，仅作量级参考**）
 
 > 来源：HuggingFace 官方博客 https://huggingface.co/blog/unsloth-trl
 > 对比基线：**"HF + Flash Attention 2"**；测试环境：A100 40GB 与免费 Colab T4。
@@ -207,13 +523,14 @@ SIDE = "unsloth"    # 另一个 notebook 填 "native"，其余一字不改
 | **免费 Colab T4** | Llama-2 7b / OASST | **1.95×** | **-43.3%** |
 | 免费 Colab T4 | Mistral 7b / Alpaca | 1.56× | -13.7% |
 
-**版本注意**：这批数据来自 transformers 4.36 / PyTorch 2.1.1 时期，与当前版本（TRL 1.12 / transformers 5.16）不同，仅作量级参考。要形成自己的结论，请以 4.4 的实测数字为准。
+**版本注意**：这批数据来自 transformers 4.36 / PyTorch 2.1.1 时期，与当前版本（TRL 1.12 / transformers 5.16）不同，仅作量级参考。要形成自己的结论，请以 4.6 的实测数字为准。
 
-### 4.6 三个坑
+### 4.8 已知限制
 
-1. **T4 上原生 HF 跑 7B QLoRA 可能 OOM**——原生没有内核优化，显存占用明显更高（官方数据里降幅在 12%~74% 之间，视模型而定）。**若原生侧 OOM，把两侧一起降到同一档小模型**（不能只降一边，否则失去可比性）。
-2. **单次数字有噪声**——同条件跑 2~3 次取平均更稳。
-3. **公平性**——两侧都不要手动装 FA2；原生侧用默认 SDPA。
+- **`Qwen/Qwen2.5-7B` 是 fp16 权重（约 15GB）**，两个 notebook 各自要下载一次，比用 Unsloth 预量化仓慢。这是为"同一份权重"付的代价。若确实嫌慢，可以两侧**都**改成 `unsloth/Qwen2.5-7B-bnb-4bit`（原生侧也能加载），但**绝不允许只改一侧**。
+- **T4 上原生 HF 跑 7B QLoRA 可能 OOM**——原生没有内核优化，显存占用明显更高（官方数据里降幅在 12%~74% 之间，视模型而定）。**若原生侧 OOM，把两侧一起降到同一档小模型**（不能只降一边，否则失去可比性）。
+- **单卡对比**，不含多卡 / DeepSpeed 场景。
+- **Colab 免费档的 GPU 型号会变**，跨天数据不要直接横向比较。
 
 ---
 
@@ -237,5 +554,5 @@ SIDE = "unsloth"    # 另一个 notebook 填 "native"，其余一字不改
 | 原生 HF（QLoRA 独立版） | `llm-lora-qlora-finetuning-guide/qlora_finetune_opt.py` |
 | Unsloth | `unsloth-finetuning-guide/finetune_basic.py` |
 | Unsloth 指南 | `Unsloth微调实战指南.md` |
-| 性能基准脚本（两侧共用） | `unsloth-finetuning-guide/benchmark-comparison/benchmark_qwen7b.py` |
-| 基准跑法与结果模板 | `unsloth-finetuning-guide/benchmark-comparison/README.md` |
+| 性能基准代码（两侧共用） | **就是本文档 4.3**（内嵌，全仓库无独立 `.py`） |
+| 基准跑法、口径、降档预案与结果模板 | 本文档 4.1–4.8 |

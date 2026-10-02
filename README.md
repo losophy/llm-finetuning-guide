@@ -75,8 +75,8 @@
 | `training_args_example.py` | 训练参数配置（含 8GB 显存优化） |
 | `save_model.py` | 保存 LoRA adapter |
 | `export_gguf.py` | 导出 GGUF 格式（Ollama 部署） |
-| `benchmark-comparison/benchmark_qwen7b.py` | Unsloth vs 原生 HF 同条件性能基准（顶部 `SIDE` 一行切换两侧） |
-| `benchmark-comparison/README.md` | 基准的 Colab 跑法、口径、降档预案与结果模板 |
+
+> 同条件性能基准（Unsloth vs 原生 HF，Qwen2.5-7B）的**安装格、基准代码、口径与结果表全在根目录《Unsloth与原生HuggingFace对照.md》第四节**——不占上面的代码目录，也没有单独的 `.py`。
 
 ## 两个"隐形的雷"
 
