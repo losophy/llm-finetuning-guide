@@ -75,6 +75,8 @@
 | `training_args_example.py` | 训练参数配置（含 8GB 显存优化） |
 | `save_model.py` | 保存 LoRA adapter |
 | `export_gguf.py` | 导出 GGUF 格式（Ollama 部署） |
+| `benchmark-comparison/benchmark_qwen7b.py` | Unsloth vs 原生 HF 同条件性能基准（顶部 `SIDE` 一行切换两侧） |
+| `benchmark-comparison/README.md` | 基准的 Colab 跑法、口径、降档预案与结果模板 |
 
 ## 两个"隐形的雷"
 

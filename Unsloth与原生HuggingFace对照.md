@@ -151,7 +151,7 @@ HuggingFace 官方博客的原话：
 
 ### 4.2 采集代码（两侧共用）
 
-基准脚本：`benchmark-comparison/benchmark_qwen7b.py`。**两侧是同一个文件**——顶部 `SIDE` 一行切换 `"unsloth"` / `"native"`，数据、超参、采集代码物理共用，只有 `load_model()` 分叉。下面这段是该脚本的原文：
+基准脚本：`unsloth-finetuning-guide/benchmark-comparison/benchmark_qwen7b.py`。**两侧是同一个文件**——顶部 `SIDE` 一行切换 `"unsloth"` / `"native"`，数据、超参、采集代码物理共用，只有 `load_model()` 分叉。下面这段是该脚本的原文：
 
 ```python
 import torch
@@ -179,7 +179,7 @@ SIDE = "unsloth"    # 另一个 notebook 填 "native"，其余一字不改
 - **两侧用同一格 install cell**，打印出的库版本（torch / transformers / trl / peft / bitsandbytes）必须一致。
 - **两侧必须同一型号 GPU**（T4 与 L4 不可混在一张表里）；脚本会打印 `torch.cuda.get_device_name(0)`，跑之前确认。
 - 统一口径：基座统一 `Qwen/Qwen2.5-7B`（各自加载时量化，不用预量化仓）；`target_modules` 统一 7 个；精度统一 fp16（T4 无 bf16）；原生侧不装 Flash Attention 2；跑 2~3 次取平均。
-- 完整的九条口径、降档预案与结果记录表见 `benchmark-comparison/README.md`。
+- 完整的九条口径、降档预案与结果记录表见 `unsloth-finetuning-guide/benchmark-comparison/README.md`。
 
 ### 4.4 结果表（待填）
 
@@ -192,7 +192,7 @@ SIDE = "unsloth"    # 另一个 notebook 填 "native"，其余一字不改
 
 > **填表前先自检**：两侧"可训练参数量"必须**完全相同**。不一致说明 `target_modules` / `r` / `alpha` 有一侧漂了，这组数字作废。
 
-**环境脚注（每次填表都要写）**：GPU 型号 · 库版本（torch / transformers / trl / peft / bitsandbytes）· `max_steps` · `max_length` · batch × accum · `target_modules` · 跑了几次是否取平均。模板见 `benchmark-comparison/README.md` 第五节。
+**环境脚注（每次填表都要写）**：GPU 型号 · 库版本（torch / transformers / trl / peft / bitsandbytes）· `max_steps` · `max_length` · batch × accum · `target_modules` · 跑了几次是否取平均。模板见 `unsloth-finetuning-guide/benchmark-comparison/README.md` 第五节。
 
 ### 4.5 官方公开数字（**非本人实测，仅作量级参考**）
 
@@ -237,5 +237,5 @@ SIDE = "unsloth"    # 另一个 notebook 填 "native"，其余一字不改
 | 原生 HF（QLoRA 独立版） | `llm-lora-qlora-finetuning-guide/qlora_finetune_opt.py` |
 | Unsloth | `unsloth-finetuning-guide/finetune_basic.py` |
 | Unsloth 指南 | `Unsloth微调实战指南.md` |
-| 性能基准脚本（两侧共用） | `benchmark-comparison/benchmark_qwen7b.py` |
-| 基准跑法与结果模板 | `benchmark-comparison/README.md` |
+| 性能基准脚本（两侧共用） | `unsloth-finetuning-guide/benchmark-comparison/benchmark_qwen7b.py` |
+| 基准跑法与结果模板 | `unsloth-finetuning-guide/benchmark-comparison/README.md` |
