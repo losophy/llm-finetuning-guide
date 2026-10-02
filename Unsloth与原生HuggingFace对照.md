@@ -319,7 +319,7 @@ def load_model():
         model, tokenizer = FastLanguageModel.from_pretrained(
             model_name=MODEL_NAME,
             max_seq_length=MAX_SEQ_LEN,
-            dtype=COMPUTE_DTYPE,
+            dtype=COMPUTE_DTYPE,        # 必须显式传：Qwen2.5-7B 的 config 是 bfloat16，T4 不支持
             load_in_4bit=True,
         )
         model = FastLanguageModel.get_peft_model(
@@ -342,6 +342,7 @@ def load_model():
         tokenizer.pad_token = tokenizer.eos_token
         model = AutoModelForCausalLM.from_pretrained(
             MODEL_NAME,
+            torch_dtype=COMPUTE_DTYPE,   # 同上：config 声明 bfloat16，必须显式覆盖成 fp16
             quantization_config=BitsAndBytesConfig(
                 load_in_4bit=True,
                 bnb_4bit_quant_type="nf4",
@@ -447,6 +448,21 @@ if SIDE == "unsloth":
         ) from _e
 
 model, tokenizer = load_model()
+
+# ── 4-bit 自检：量化没生效就当场停下，别等到 OOM ────────────────────
+# 7B 正确做了 4-bit 只占 ~4.4GB。若这里报出十几 GB，说明量化被静默绕过，
+# 权重是按 fp16 全量加载的 —— 继续跑必然 OOM。
+_alloc = torch.cuda.memory_allocated() / 1e9
+print("加载后显存(GB): %.2f" % _alloc)
+if _alloc > 8:
+    raise RuntimeError(
+        "4-bit 量化似乎没有生效：模型加载后已占 %.1f GB（正确应 ~4.4GB）。\n"
+        "→ 大概率是 dtype 不兼容：Qwen2.5-7B 的 config 声明 bfloat16，而 T4 不支持。\n"
+        "  确认 from_pretrained 里显式传了 dtype=COMPUTE_DTYPE（Unsloth 侧）/ \n"
+        "  torch_dtype=COMPUTE_DTYPE（原生侧），且 COMPUTE_DTYPE 是 torch.float16。\n"
+        "  另外两侧都别再手动传 bf16 相关参数。" % _alloc
+    )
+
 train_dataset = build_dataset()
 trainer = build_trainer(model, tokenizer, train_dataset)
 model.print_trainable_parameters()
@@ -525,10 +541,45 @@ print("保留显存(GB) :", torch.cuda.max_memory_reserved() / 1e9)
 
 **版本注意**：这批数据来自 transformers 4.36 / PyTorch 2.1.1 时期，与当前版本（TRL 1.12 / transformers 5.16）不同，仅作量级参考。要形成自己的结论，请以 4.6 的实测数字为准。
 
-### 4.8 已知限制
+### 4.8 已知限制与已踩的坑
+
+**① 7B 放不下时，先怀疑"量化没生效"，而不是"显存不够"。**
+
+实测踩过两次，症状不同但根因相同——**4-bit 被静默绕过，权重按 fp16 全量加载**（7B fp16 ≈ 15GB > T4 的 14.56GB）：
+
+| 侧 | 崩在哪 | 现场数字 |
+|---|---|---|
+| 原生 HF | `SFTTrainer(...)` → `prepare_model_for_kbit_training` 里 `param.data.to(torch.float32)` | 崩前已占 12.71 GiB，失败分配 2.03 GiB（= 545M 参数实体 fp32） |
+| Unsloth | `load_model()` 里 loading checkpoint shards 50% | 已占 14.27 GiB |
+
+**判据**：`torch.cuda.memory_allocated()` 在**模型加载后**若 > 8GB，就是没量化（正确值 ~4.4GB）。4.3 代码里已加这条自检，会当场抛错并给指引。
+
+**根因**：`Qwen2.5-7B` 的 `config.torch_dtype` 是 **`bfloat16`**，而 **T4 不支持 bf16**（capability 7.5，`is_bfloat16_supported() = False`）。所以必须在 `from_pretrained` 里**显式**把 dtype 钉成 fp16——Unsloth 侧传 `dtype=`、原生侧传 `torch_dtype=`，两侧都不能省。
+
+**排查步骤**（10 秒定位，别靠猜）：
+
+```python
+import torch, bitsandbytes as bnb
+from transformers import AutoConfig
+
+# 1) bnb 的 4-bit 内核在这张卡上能不能跑（应该输出 torch.uint8）
+q, _ = bnb.functional.quantize_4bit(torch.randn(512, 512, device="cuda", dtype=torch.float16))
+print("4-bit 内核:", q.dtype)
+
+# 2) 模型实际占了多少 —— >8GB 就是量化没生效
+print("allocated : %.2f GB" % (torch.cuda.memory_allocated() / 1e9))
+
+# 3) config 声明的 dtype（bf16 = 需要显式覆盖）
+print("config    :", AutoConfig.from_pretrained("Qwen/Qwen2.5-7B").torch_dtype)
+```
+
+**② 这个 OOM 发生在"准备/加载"阶段，调 `BATCH_SIZE` / `MAX_SEQ_LEN` 完全无效。** 那些只影响训练时的激活值，模型权重该占多少还占多少。别去试。
+
+**③ `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True`**（报错信息自己会建议）必须在**本会话第一次 `import torch` 之前**设置才生效。而安装格（4.2）里就有 `import torch`——所以**放进 4.3 那段代码是没用的**，要加只能加到 4.2 安装格的最前面，或更早的一格。
+
+**④ 其他限制**
 
 - **`Qwen/Qwen2.5-7B` 是 fp16 权重（约 15GB）**，两个 notebook 各自要下载一次，比用 Unsloth 预量化仓慢。这是为"同一份权重"付的代价。若确实嫌慢，可以两侧**都**改成 `unsloth/Qwen2.5-7B-bnb-4bit`（原生侧也能加载），但**绝不允许只改一侧**。
-- **T4 上原生 HF 跑 7B QLoRA 可能 OOM**——原生没有内核优化，显存占用明显更高（官方数据里降幅在 12%~74% 之间，视模型而定）。**若原生侧 OOM，把两侧一起降到同一档小模型**（不能只降一边，否则失去可比性）。
 - **单卡对比**，不含多卡 / DeepSpeed 场景。
 - **Colab 免费档的 GPU 型号会变**，跨天数据不要直接横向比较。
 
