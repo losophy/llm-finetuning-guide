@@ -453,6 +453,30 @@ if SIDE == "unsloth":
             "  （务必带 --no-deps：不带会把 transformers / torch 拽走。）"
         ) from _e
 
+# ── 加载前清场：必须放在 load_model() 之前 ─────────────────────────
+# 同一个运行时里重跑这段代码（只重新运行 cell、没有真正重启）时，上一次的
+# model / trainer 仍然活着、仍占着显存，新的加载就会在"分片还剩一半"时 OOM。
+# 症状极具迷惑性：报错看着像"显存不够"，其实是上一次的残留。
+# 四个名字都要清：trainer 持有 model 的引用，只 del model 是清不掉的。
+import gc
+
+for _name in ("model", "trainer", "train_dataset", "tokenizer"):
+    if _name in globals():
+        del globals()[_name]
+gc.collect()
+torch.cuda.empty_cache()
+
+_free, _total = torch.cuda.mem_get_info()
+print("加载前空闲显存(GB): %.2f / %.2f" % (_free / 1e9, _total / 1e9))
+if _free / 1e9 < 12:
+    raise RuntimeError(
+        "加载前 GPU 空闲显存只有 %.1f GB（需要 ≥12GB）。\n"
+        "→ 显存被上一次运行或其它进程占着，别硬跑，先清干净：\n"
+        "  Colab：运行时 → 断开连接并删除运行时（Disconnect and delete runtime）；\n"
+        "  Kaggle：Run → Restart & Clear Cell Outputs（或 Factory reset）。\n"
+        "  注意：只重新运行 cell 不算重启，上一次的 model 还活着。" % (_free / 1e9)
+    )
+
 model, tokenizer = load_model()
 
 # ── 4-bit 自检：量化没生效就当场停下，别等到 OOM ────────────────────
@@ -489,15 +513,16 @@ print("保留显存(GB) :", torch.cuda.max_memory_reserved() / 1e9)
 
 跑完把控制台输出的那段（设备 / 版本 / 可训练参数 / 四项指标）抄进 **4.6 的表**。
 
-> Colab 免费档给的是 **T4 16GB**。Qwen2.5-7B 的 4-bit QLoRA 在 T4 上两侧都能跑，但原生侧更吃显存，遇到 OOM 看 **4.5 降档预案**。
+> Colab 免费档给的是 **T4 16GB**。Qwen2.5-7B 的 4-bit QLoRA 在 T4 上两侧都能跑。遇到 OOM 先看 **4.8 ①** 分清是"运行时没清干净"还是"量化没生效"，**别直接降档**——两者都不是显存不够。
 
-### 4.4 两侧怎么跑：三条硬规则
+### 4.4 两侧怎么跑：四条硬规则
 
 在 Colab / Kaggle 各建**两个独立 notebook**，一次只跑一侧（先跑哪侧不限）：
 
 1. **两侧必须独立 notebook / 独立进程。** `import unsloth` 会在导入时全局改写 HF 的模型实现，同一会话里连跑两侧，原生侧的数字直接作废。
-2. **两侧必须同一型号 GPU。** 4.3 代码第一段就会打印 `torch.cuda.get_device_name(0)`；T4 与 L4 的数字不可混在一张表里。Colab 分配是随机的，两次跑之前都确认一下。
-3. **跑 2~3 次取平均。** 单次数字有噪声，尤其耗时。
+2. **每开一侧，先真正重启运行时。** 「重新运行 cell」不算重启：上一次的 `model` / `trainer` 还在显存里，新一次加载会在分片 50% 处 OOM（见 4.8 ①）。Colab「断开连接并删除运行时」/ Kaggle「Restart & Clear Cell Outputs」。4.3 代码里已加了自动清场 + 空闲显存断言，会帮你兜底，但别依赖它。
+3. **两侧必须同一型号 GPU。** 4.3 代码第一段就会打印 `torch.cuda.get_device_name(0)`；T4 与 L4 的数字不可混在一张表里。Colab 分配是随机的，两次跑之前都确认一下。
+4. **跑 2~3 次取平均。** 单次数字有噪声，尤其耗时。
 
 另外，两侧打印的库版本（torch / transformers / trl / peft / bitsandbytes）也应一致——这就是为什么要用 4.2 那一格逐字相同的安装格。
 
@@ -516,7 +541,8 @@ print("保留显存(GB) :", torch.cuda.max_memory_reserved() / 1e9)
 
 | 症状 | 处理 |
 |---|---|
-| 原生侧 OOM，Unsloth 侧正常 | 两侧同时 `MAX_SEQ_LEN` → 1024、`BATCH_SIZE` → 1、`GRAD_ACCUM` → 8 |
+| 崩在分片 50%（已占≈全部显存） | **不是显存不够，是运行时没清干净** → 重启运行时后重跑，别动参数（见 4.8 ①） |
+| 真·OOM：原生侧崩、Unsloth 侧正常 | 两侧同时 `MAX_SEQ_LEN` → 1024、`BATCH_SIZE` → 1、`GRAD_ACCUM` → 8 |
 | 还 OOM | 两侧同时 `MAX_SEQ_LEN=512` |
 | 7B 两侧都跑不动 | 两侧一起换 `Qwen/Qwen2.5-3B`，并在表下注明换了模型 |
 | Colab 会话中断 | `MAX_STEPS` 调小（如 30）后两侧重跑；两侧步数必须一致 |
@@ -558,24 +584,35 @@ print("保留显存(GB) :", torch.cuda.max_memory_reserved() / 1e9)
 
 ### 4.8 已知限制与已踩的坑
 
-**① 7B 放不下时，先怀疑"量化没生效"，而不是"显存不够"。**
+**① 7B 在 T4 上 OOM，先分清是哪一类，别一上来就降档。**
 
-实测踩过两次，症状不同但根因相同——**4-bit 被静默绕过，权重按 fp16 全量加载**（7B fp16 ≈ 15GB > T4 的 14.56GB）：
+实测踩过三次，症状不同、根因**两类**——不要把它们混成一个问题：
 
-| 侧 | 崩在哪 | 现场数字 |
-|---|---|---|
-| 原生 HF | `SFTTrainer(...)` → `prepare_model_for_kbit_training` 里 `param.data.to(torch.float32)` | 崩前已占 12.71 GiB，失败分配 2.03 GiB（= 545M 参数实体 fp32） |
-| Unsloth | `load_model()` 里 loading checkpoint shards 50% | 已占 14.27 GiB |
+| 现场 | 崩在哪 | 关键数字 | 根因 |
+|---|---|---|---|
+| 原生 HF | `SFTTrainer(...)` → `prepare_model_for_kbit_training` 里 `param.data.to(torch.float32)` | 崩前已占 12.71 GiB，失败分配 2.03 GiB（= 545M 参数实体 fp32） | **量化没生效**：`from_pretrained` 没显式传 dtype，吃了 config 的 bf16 |
+| Unsloth（第 1 次） | `load_model()` → loading checkpoint shards **50%** | 已占 14.27 GiB | **运行时没清场**：上一次的 model 还活着 |
+| Unsloth（第 2 次，同一份代码） | 同上 | 同上（数字逐字节相同） | 同上 |
+| Unsloth（清干净后） | 加载成功 | 加载后 **7.73 GB** | 正常 |
 
-**判据**：`torch.cuda.memory_allocated()` 在**模型加载后**若 > 8GB，就是没量化（正确值 ~4.4GB）。4.3 代码里已加这条自检，会当场抛错并给指引。
+**两条判据，一眼就能分开：**
 
-**根因**：`Qwen2.5-7B` 的 `config.torch_dtype` 是 **`bfloat16`**，而 **T4 不支持 bf16**（capability 7.5，`is_bfloat16_supported() = False`）。所以必须在 `from_pretrained` 里**显式**把 dtype 钉成 fp16——Unsloth 侧传 `dtype=`、原生侧传 `torch_dtype=`，两侧都不能省。
+1. **崩在 50%** —— 若"已占显存 ≈ 全部显存"而"进度只有一半"，这不可能是一次干净加载（7B 加载到一半只需约 7GB）。差额约 7.2GB 就是**上一次运行残留的模型**。**先清场，不要改任何参数。** 同一份代码在干净运行时能加载成功（7.73GB），就是最直接的证明。
+2. **加载后 `memory_allocated() > 8GB`** —— 量化没生效（正确值 ~4.4GB；实测 7.73GB 是含加载开销的正常值）。4.3 的代码里已加这条自检，会当场抛错。
+
+**残留这一类怎么修**：`load_model()` 之前必须清场（4.3 代码里已加，会自动 `del model / trainer / train_dataset / tokenizer` + `gc.collect()` + `empty_cache()`，再断言空闲 ≥12GB）。
+**最容易犯的错是"只重新运行 cell"当作重启**——`trainer` 持有 `model` 的引用，不清就一直在显存里。正确的重启：Colab「断开连接并删除运行时」/ Kaggle「Restart & Clear Cell Outputs」。**每一侧开跑前都重启一次**，开销只是重新跑一遍安装格。
+
+**量化没生效那一类的根因**：`Qwen2.5-7B` 的 `config.torch_dtype` 是 **`bfloat16`**，而 **T4 不支持 bf16**（capability 7.5，`is_bfloat16_supported() = False`）。所以必须在 `from_pretrained` 里**显式**把 dtype 钉成 fp16——Unsloth 侧传 `dtype=`、原生侧传 `torch_dtype=`，两侧都不能省。
 
 **排查步骤**（10 秒定位，别靠猜）：
 
 ```python
 import torch, bitsandbytes as bnb
 from transformers import AutoConfig
+
+# 0) 崩了之后先看残留：数字很大（约 7GB）= 上一次的 model 还活着 → 重启运行时
+print("残留       : %.2f GB" % (torch.cuda.memory_allocated() / 1e9))
 
 # 1) bnb 的 4-bit 内核在这张卡上能不能跑（应该输出 torch.uint8）
 q, _ = bnb.functional.quantize_4bit(torch.randn(512, 512, device="cuda", dtype=torch.float16))
