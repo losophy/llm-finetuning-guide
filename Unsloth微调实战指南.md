@@ -40,11 +40,7 @@
 - **Llama 3.2 (1B + 3B) 对话**（模型更小，跑得更快）
   https://colab.research.google.com/github/unslothai/notebooks/blob/main/nb/Llama3.2_%281B_and_3B%29-Conversational.ipynb
 
-> 上面给的是 Colab 打开链接。本文主线用 **Kaggle**，在 Kaggle 里 **`File → Import Notebook → GitHub`**，粘贴对应的 GitHub 地址（把链接里的 `colab.research.google.com/github/` 换成 `github.com/`），再按 2.1 设好 GPU 与 Internet 即可。Colab 额度恢复后，上面的链接点开也能直接跑。
-
 跑完后你会看到：**加载模型 → 格式化数据 → 训练 → 推理测试**，这四件事在一份 Notebook 里全干完了。后面第 1、2 步就是把其中"训练"和"导出"换成 Qwen2.5-7B 与本文的默认数据集——**数据会自动下载，不用自己准备**。
-
-> **平台说明**：本文主线用 **Kaggle**——额度更稳定（每周 30 小时，可预期），导出 GGUF 时的系统内存也更宽裕；需先**验证账号**才能同时开启 GPU 和 Internet（见 2.1）。Google Colab 点开即可运行、不用做任何配置，但免费额度是**动态限时、不保证**，额度耗尽时会连不上 GPU（本文这次就是这种情况）。
 
 ---
 
