@@ -186,9 +186,25 @@ drive.mount('/content/drive')
 
 ### 2.4 验证环境
 
-运行 `verify_installation.py` 检查 PyTorch / CUDA / GPU / VRAM 是否正常：
+检查 PyTorch / CUDA / GPU / VRAM 是否正常：
 
-> 📁 **完整代码**：`unsloth-finetuning-guide/verify_installation.py`
+```python
+import torch
+
+print(f"PyTorch 版本: {torch.__version__}")
+print(f"CUDA 可用: {torch.cuda.is_available()}")
+
+if torch.cuda.is_available():
+    gpu_props = torch.cuda.get_device_properties(0)
+    print(f"GPU 名称: {torch.cuda.get_device_name(0)}")
+    print(f"VRAM 容量: {gpu_props.total_memory / 1e9:.1f} GB")
+    print(f"计算能力: {gpu_props.major}.{gpu_props.minor}")
+    print(f"BF16 支持: {torch.cuda.is_bf16_supported()}")
+else:
+    print("警告: 未检测到 NVIDIA GPU，请确保已启用 GPU 运行时")
+```
+
+> **预期结果**：CUDA 可用 = `True`，VRAM ≈ 15.x GB（T4 / 16GB 卡），**BF16 支持 = `False`**——T4 的算力是 7.5，**不支持 bf16**，所以本项目全程用 **fp16**（见 5.1）。这一行就是提前发现"精度跑错"的信号灯。
 
 ---
 
@@ -224,17 +240,67 @@ drive.mount('/content/drive')
 
 ### 3.2 加载与划分
 
-> **数据集来源**：本指南不附带数据文件。默认加载 HuggingFace Hub 的公开数据集 `yahma/alpaca-cleaned`（Alpaca 格式），可换成中文数据集（如 `shibing624/alpaca-zh`），也可传入本地 JSONL——脚本会自动识别 Alpaca / ShareGPT 两种字段。
+> **数据集来源**：本指南不附带数据文件。默认加载 HuggingFace Hub 的公开数据集 `yahma/alpaca-cleaned`（Alpaca 格式），可换成中文数据集（如 `shibing624/alpaca-zh`），也可传入本地 JSONL——下面的代码会自动识别 Alpaca / ShareGPT 两种字段。
 > 中国大陆网络可先设镜像：`export HF_ENDPOINT=https://hf-mirror.com`
 
 ```python
-from prepare_data import prepare_datasets
+from datasets import load_dataset
+
+# 默认数据集（HuggingFace Hub，Alpaca 格式）
+# 英文通用：yahma/alpaca-cleaned   中文指令：shibing624/alpaca-zh
+DEFAULT_DATASET = "yahma/alpaca-cleaned"
+MAX_SAMPLES = 1000          # 先小规模跑通，确认无误后再调大（"100 条精品"原则）
+
+
+def load_from_hub(dataset_name=DEFAULT_DATASET, max_samples=MAX_SAMPLES):
+    """从 HuggingFace Hub 加载公开数据集（默认 Alpaca 格式）"""
+    dataset = load_dataset(dataset_name, split="train")
+    if max_samples and len(dataset) > max_samples:
+        dataset = dataset.select(range(max_samples))
+    return dataset
+
+
+def convert_sharegpt(sample):
+    """把 ShareGPT 多轮对话（role/content 或 from/value）转成 Alpaca 三字段"""
+    def pick(roles):
+        for turn in sample["conversations"]:
+            role = turn.get("role") or turn.get("from")
+            if role in roles:
+                return turn.get("content") or turn.get("value") or ""
+        return ""
+
+    return {
+        "instruction": pick(("user", "human")),
+        "input": "",
+        "output": pick(("assistant", "gpt")),
+    }
+
+
+def load_from_jsonl(path):
+    """从本地 JSONL 加载，自动识别 Alpaca / ShareGPT 两种格式"""
+    dataset = load_dataset("json", data_files=path, split="train")
+    columns = dataset.column_names
+    if "instruction" in columns and "output" in columns:
+        return dataset            # 已是 Alpaca 格式
+    if "conversations" in columns:
+        return dataset.map(convert_sharegpt, remove_columns=columns)
+    raise ValueError(f"无法识别的数据格式，字段为: {columns}")
+
+
+def prepare_datasets(source=None, test_size=0.2, seed=42):
+    """准备训练集/验证集
+
+    source=None  → 加载 HuggingFace 默认数据集（需要联网）
+    source=路径  → 加载本地 JSONL（Alpaca 或 ShareGPT 格式均可）
+    """
+    dataset = load_from_jsonl(source) if source else load_from_hub()
+    split = dataset.train_test_split(test_size=test_size, seed=seed)
+    return split["train"], split["test"]
+
 
 # 默认加载 HuggingFace 数据集；也可传本地文件：prepare_datasets("data/xxx.jsonl")
 train_dataset, eval_dataset = prepare_datasets()
 ```
-
-> 📁 **完整代码**：`unsloth-finetuning-guide/prepare_data.py`
 
 ### 3.3 使用 Unsloth Data Recipes（可选）
 
@@ -346,7 +412,8 @@ def train(trainer, output_dir="./qwen2.5-finetuned-final"):
 
 
 if __name__ == "__main__":
-    from prepare_data import prepare_datasets
+    # 数据准备直接用 3.2 的 prepare_datasets()（那段代码要在同一运行时里先跑过）
+    # 保存 adapter 见 6.1；导出 GGUF 见 6.2
 
     # 加载模型
     model, tokenizer = load_model()
@@ -354,7 +421,7 @@ if __name__ == "__main__":
     # 配置 LoRA
     model = configure_lora(model)
 
-    # 准备数据集（默认 HuggingFace 公开数据集；也可传本地 JSONL 路径）
+    # 准备数据集（prepare_datasets 来自 3.2）
     train_dataset, eval_dataset = prepare_datasets()
     train_dataset = train_dataset.map(lambda x: {"text": format_prompt(x)})
     eval_dataset = eval_dataset.map(lambda x: {"text": format_prompt(x)})
@@ -367,8 +434,6 @@ if __name__ == "__main__":
 
     print("训练完成，模型已保存到 ./qwen2.5-finetuned-final")
 ```
-
-> 📁 **完整代码**：`unsloth-finetuning-guide/finetune_basic.py`（本代码块与脚本逐字一致）
 
 ### 4.2 训练监控要点
 
@@ -394,6 +459,10 @@ if __name__ == "__main__":
 ### 5.1 关键参数说明
 
 ```python
+import torch
+from transformers import TrainingArguments
+
+# ── 标准配置（≥16GB 显存，示例：T4）──────────────────────────────
 training_args = TrainingArguments(
     # 批次大小
     per_device_train_batch_size=2,      # 根据 VRAM 调整
@@ -407,17 +476,47 @@ training_args = TrainingArguments(
     # 训练轮次
     num_train_epochs=3,                 # 避免过拟合（1-3轮推荐）
 
-    # 精度
-    fp16=False,                         # 根据 GPU 支持
-    bf16=True,                          # 推荐
+    # 精度：按显卡能力自动选。T4 不支持 bf16，写死 bf16=True 会静默跑错精度
+    fp16=not torch.cuda.is_bf16_supported(),
+    bf16=torch.cuda.is_bf16_supported(),
 
     # 其他
     gradient_checkpointing=True,        # 节省 VRAM
     optim="adamw_8bit",                 # 8-bit 优化器
+
+    output_dir="./qwen2.5-finetuned",
+    logging_steps=10,
+    save_steps=100,
+    eval_strategy="steps",
+    eval_steps=100,
+)
+
+# ── 8GB 显存配置（示例：本机 RTX 4060 Ti）────────────────────────
+training_args_8gb = TrainingArguments(
+    per_device_train_batch_size=1,      # 8GB 必须设为 1
+    gradient_accumulation_steps=8,      # 等效批量仍是 8
+    # 注意：序列长度不是 TrainingArguments 参数，
+    # 请在 FastLanguageModel.from_pretrained(max_seq_length=1024) 处设置
+
+    learning_rate=2e-4,
+    lr_scheduler_type="cosine",
+    warmup_steps=10,
+    num_train_epochs=3,
+
+    fp16=True,                          # 8GB 卡（如 RTX 4060 Ti）用 fp16
+    bf16=False,
+
+    gradient_checkpointing=True,
+    optim="adamw_8bit",
+
+    output_dir="./qwen2.5-finetuned",
+    logging_steps=10,
+    save_steps=100,
 )
 ```
 
-> 📁 **完整代码**：`unsloth-finetuning-guide/training_args_example.py`（含 8GB 显存优化配置）
+> 各硬件档位（batch_size / grad_accum / r / max_seq_length）见 **1.3 推荐配置**（全篇唯一一份配置总表，此处不再重复）。
+> 说明：上面用 `TrainingArguments` 讲参数；**实际训练用的是 `SFTConfig`**（TRL 提供，见 4.1），两者参数名完全相同。
 
 ### 5.2 调优策略
 
@@ -486,7 +585,17 @@ tokenizer.save_pretrained("./qwen2.5-lora-adapter")
 # model.push_to_hub("your-username/qwen2.5-finetuned")
 ```
 
-> 📁 **完整代码**：`unsloth-finetuning-guide/save_model.py`
+下次要用这个 adapter 时，加载同一个基座再挂上去即可：
+
+```python
+from unsloth import FastLanguageModel
+
+model, tokenizer = FastLanguageModel.from_pretrained(
+    model_name="unsloth/Qwen2.5-7B-bnb-4bit",   # 必须是同一个基座
+    load_in_4bit=True,
+)
+model.load_adapter("./qwen2.5-lora-adapter")    # 挂上你训好的 adapter
+```
 
 ### 6.2 导出为 GGUF（云端）
 
@@ -513,8 +622,6 @@ model.save_pretrained_gguf(
 
 > ⚠️ 导出时 Unsloth 会先把模型合并到 fp16 再量化，**这一步吃的是系统内存**（不是显存）。本文在 **Kaggle** 上导出——系统内存比 Colab 免费档宽裕，7B 用默认的 **`q4_k_m`** 通常能过。若仍报内存不足，再降到 **`q3_k_m`**（只改上面代码块那一行，本节体积数字按表里 `q3_k_m` 那列替换）。
 > 降档的代价要清楚：少 1 bit，输出质量会有可感知的下降（更易答偏、格式更易崩）。
-
-> 📁 **完整代码**：`unsloth-finetuning-guide/export_gguf.py`
 
 ### 6.3 下载到本地
 

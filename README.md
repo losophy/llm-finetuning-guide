@@ -31,7 +31,7 @@
 | 项目 | Stars | 核心技术 | 用法 |
 |------|-------|----------|------|
 | [machinelearningplus - LoRA & QLoRA（中文完整指南）](LoRA与QLoRA微调大语言模型完整指南.md) | — | LoRA/QLoRA 完整代码 | **入门必看**。本仓库含配套脚本（`llm-lora-qlora-finetuning-guide/`），可直接运行。逐行抄写代码，重点关注 `LoraConfig` 里的 `r`（秩）、`alpha`、`target_modules` 怎么影响显存。含内存计算、常见错误 |
-| [unslothai/unsloth](https://github.com/unslothai/unsloth) | 63K+ | LoRA/QLoRA 加速 | **纯代码主框架**。250+ Notebook 示例，必须手动处理 JSON 数据集、手动拆分训练/验证集——痛苦但有用。加速 2-5 倍、显存减半，消费级 GPU 可跑。云端跑法（Colab 或 Kaggle）、参数调优与本地 Ollama 部署见《Unsloth微调实战指南.md》。配套代码见 `unsloth-finetuning-guide/` |
+| [unslothai/unsloth](https://github.com/unslothai/unsloth) | 63K+ | LoRA/QLoRA 加速 | **纯代码主框架**。250+ Notebook 示例，必须手动处理 JSON 数据集、手动拆分训练/验证集——痛苦但有用。加速 2-5 倍、显存减半，消费级 GPU 可跑。云端跑法（Colab 或 Kaggle）、参数调优与本地 Ollama 部署见《Unsloth微调实战指南.md》 |
 
 ### 🔧 第二优先级：工业化框架 + 蒸馏
 
@@ -65,18 +65,18 @@
 
 ## 本仓库代码文件
 
-### Unsloth 微调代码（`unsloth-finetuning-guide/`）
+**Unsloth 微调代码全部内嵌在《Unsloth微调实战指南.md》里**（仓库不再有独立的 `.py`）：
 
-| 文件 | 用途 |
+| 用途 | 位置 |
 |------|------|
-| `verify_installation.py` | 验证 PyTorch、CUDA、GPU 环境 |
-| `prepare_data.py` | 数据集加载与划分（HuggingFace Hub / 本地 JSONL，自动识别 Alpaca / ShareGPT） |
-| `finetune_basic.py` | Qwen2.5 QLoRA 微调主脚本 |
-| `training_args_example.py` | 训练参数配置（含 8GB 显存优化） |
-| `save_model.py` | 保存 LoRA adapter |
-| `export_gguf.py` | 导出 GGUF 格式（Ollama 部署） |
+| 环境验证 | 指南 2.4 |
+| 数据加载与划分（Hub / 本地 JSONL，自动识别 Alpaca / ShareGPT） | 指南 3.2 |
+| Qwen2.5 QLoRA 微调主代码 | 指南 4.1 |
+| 训练参数配置（含 8GB 显存优化） | 指南 5.1 |
+| 保存 LoRA adapter | 指南 6.1 |
+| 导出 GGUF（Ollama 部署） | 指南 6.2 |
 
-> 同条件性能基准（Unsloth vs 原生 HF，Qwen2.5-7B）的**安装格、基准代码、口径与结果表全在根目录《Unsloth与原生HuggingFace对照.md》第四节**——不占上面的代码目录，也没有单独的 `.py`。
+> 同条件性能基准（Unsloth vs 原生 HF，Qwen2.5-7B）的**安装格、基准代码、口径与结果表全在根目录《Unsloth与原生HuggingFace对照.md》第四节**——同样没有单独的 `.py`。
 
 ## 两个"隐形的雷"
 

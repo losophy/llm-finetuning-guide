@@ -65,7 +65,7 @@ model_q = get_peft_model(model_q, LoraConfig(
 
 ### 2.2 Unsloth 侧
 
-基准脚本：`unsloth-finetuning-guide/finetune_basic.py`（与 `Unsloth微调实战指南.md` 4.1 代码块逐字一致）。
+本节代码即 `Unsloth微调实战指南.md` 4.1 的代码块（代码已全部内嵌在该指南里，仓库不再有独立的 `.py`）。
 
 ```python
 def load_model(model_name="unsloth/Qwen2.5-7B-bnb-4bit", max_seq_length=2048):
@@ -111,7 +111,7 @@ def configure_lora(model):
 
 **② `SFTTrainer` 部分两边一模一样。** 这说明此前踩的那批报错（`evaluation_strategy` → `eval_strategy`、`warmup_ratio` → `warmup_steps`、`tokenizer` → `processing_class`）**与 Unsloth 没有关系**，那是 TRL 1.12 的 API 更名——原生、Unsloth 两侧都得跟着改。
 
-> **附注**：两侧的数据模板不同——原生侧脚本用 `### Human / ### Assistant`（见 `lora_finetune_opt.py` 第 11–12 行），Unsloth 侧 `finetune_basic.py` 用 Alpaca 的 `### Instruction / ### Response`。**这是数据格式的选择差异，不是 Unsloth 带来的差异。**
+> **附注**：两侧的数据模板不同——原生侧脚本用 `### Human / ### Assistant`（见 `lora_finetune_opt.py` 第 11–12 行），Unsloth 侧（指南 4.1 代码块）用 Alpaca 的 `### Instruction / ### Response`。**这是数据格式的选择差异，不是 Unsloth 带来的差异。**
 
 ---
 
@@ -162,7 +162,7 @@ HuggingFace 官方博客的原话：
 几条容易踩的：
 
 1. **不用 `unsloth/Qwen2.5-7B-bnb-4bit`。** 预量化权重和加载时量化可能不完全等价，会被质疑"权重来源不一致"。两侧都用官方 `Qwen/Qwen2.5-7B`。
-2. **`target_modules` 必须都是 7 个。** 仓库里 `finetune_basic.py` 是 7 个、原生脚本是 4 个——直接拿那两个脚本比，可训练参数量不同，耗时不可比。
+2. **`target_modules` 必须都是 7 个。** 指南 4.1 的代码块是 7 个、原生脚本是 4 个——直接拿那两份代码比，可训练参数量不同，耗时不可比。
 3. **精度写死 fp16。** 别用 `torch.cuda.is_bf16_supported()` 自动判断，换到 L4 / A100 两侧就会不一致。
 4. **原生侧不要手动装 Flash Attention 2**，用 PyTorch 默认的 SDPA 即可（T4 上装 FA2 麻烦，且会改变对比口径）。
 5. **梯度检查点两侧对称**：Unsloth 用 `use_gradient_checkpointing="unsloth"`，原生用 `gradient_checkpointing_enable()`（写在 `load_model()` 的 native 分支里）。这是被测量的差异本身，不算不公。**别图省事把它挪进共用的 `SFTConfig`**：那会让 TRL 调标准的 `gradient_checkpointing_enable()` 去覆盖 Unsloth 自己的 GC，等于动了被测对象。
@@ -298,7 +298,7 @@ def trainable_param_count(model):
 
 
 def format_prompt(sample):
-    """Alpaca 模板（与 unsloth-finetuning-guide/finetune_basic.py 一致）"""
+    """Alpaca 模板（与指南 4.1 代码块一致）"""
     if str(sample.get("input", "")).strip():
         return f"""### Instruction:
 {sample['instruction']}
@@ -824,7 +824,7 @@ trainable params: 40,370,176 || all params: 7,655,986,688 || trainable%: 0.5273
 |---|---|
 | 原生 HF（基准） | `llm-lora-qlora-finetuning-guide/finetune_llm_with_lora_and_qlora.py` |
 | 原生 HF（QLoRA 独立版） | `llm-lora-qlora-finetuning-guide/qlora_finetune_opt.py` |
-| Unsloth | `unsloth-finetuning-guide/finetune_basic.py` |
-| Unsloth 指南 | `Unsloth微调实战指南.md` |
+| Unsloth（训练代码） | `Unsloth微调实战指南.md` 4.1 代码块（内嵌） |
+| Unsloth 其余代码 | `Unsloth微调实战指南.md` 3.2 / 5.1 / 6.1 / 6.2（均内嵌，无独立 `.py`） |
 | 性能基准代码（两侧共用） | **就是本文档 4.3**（内嵌，全仓库无独立 `.py`） |
 | 基准跑法、口径、降档预案与**实测结果** | 本文档 4.1–4.8（4.6 已填满） |
