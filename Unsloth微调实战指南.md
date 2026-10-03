@@ -1,6 +1,6 @@
 # Unsloth 微调实战指南
 
-> **运行方式**：训练与导出全部在云端 GPU 完成（Google Colab 或 Kaggle 免费额度），本地不装 CUDA、不下模型权重、不占磁盘；只在最后一步用**本地已装的 Ollama** 运行导出的模型。
+> **运行方式**：训练与导出全部在云端 GPU 完成（**本文用 Kaggle 免费额度**；Google Colab 亦可，见 1.1），本地不装 CUDA、不下模型权重、不占磁盘；只在最后一步用**本地已装的 Ollama** 运行导出的模型。
 >
 > **学习目标**：掌握 Unsloth 微调框架，能独立完成模型的微调、参数调优、GGUF 导出与本地部署
 >
@@ -40,9 +40,11 @@
 - **Llama 3.2 (1B + 3B) 对话**（模型更小，跑得更快）
   https://colab.research.google.com/github/unslothai/notebooks/blob/main/nb/Llama3.2_%281B_and_3B%29-Conversational.ipynb
 
+> 上面给的是 Colab 打开链接。本文主线用 **Kaggle**，在 Kaggle 里 **`File → Import Notebook → GitHub`**，粘贴对应的 GitHub 地址（把链接里的 `colab.research.google.com/github/` 换成 `github.com/`），再按 2.1 设好 GPU 与 Internet 即可。Colab 额度恢复后，上面的链接点开也能直接跑。
+
 跑完后你会看到：**加载模型 → 格式化数据 → 训练 → 推理测试**，这四件事在一份 Notebook 里全干完了。后面第 1、2 步就是把其中"训练"和"导出"换成你自己的模型与数据。
 
-> **平台说明**：Colab 点开即可运行；Kaggle 需先**验证账号**才能同时开启 GPU 和 Internet。
+> **平台说明**：本文主线用 **Kaggle**——额度更稳定（每周 30 小时，可预期），导出 GGUF 时的系统内存也更宽裕；需先**验证账号**才能同时开启 GPU 和 Internet（见 2.1）。Google Colab 点开即可运行、不用做任何配置，但免费额度是**动态限时、不保证**，额度耗尽时会连不上 GPU（本文这次就是这种情况）。
 
 ---
 
@@ -52,15 +54,15 @@
 
 ### 1.1 Colab 与 Kaggle 怎么选
 
-| | Google Colab | Kaggle |
+| | Kaggle（首选） | Google Colab（备选） |
 |---|---|---|
-| GPU | 单 T4（≈15GB） | 2×T4（≈30GB，默认只用单卡） |
-| 免费额度 | 每天限时、不保证 | 每周 30 小时，更可预期 |
-| 持久化 | 挂载 Google Drive | 写入 `/kaggle/working`（会话结束自动保存为 Output）或存成 Dataset |
-| 联网 | 默认可用 | **需先验证账号**才能同时开 GPU 和 Internet |
-| 适合 | 快速起步、跟官方 Notebook | 时间较长的训练（7B 多轮实验） |
+| GPU | 2×T4（≈30GB，默认只用单卡） | 单 T4（≈15GB） |
+| 免费额度 | 每周 30 小时，更可预期 | 动态限时、不保证；耗尽会连不上 GPU |
+| 持久化 | 写入 `/kaggle/working`（会话结束自动保存为 Output）或存成 Dataset | 挂载 Google Drive |
+| 联网 | **需先验证账号**才能同时开 GPU 和 Internet | 默认可用 |
+| 适合 | 长期跑、导出 GGUF（**本文主线**） | 额度恢复后快速起步、跟官方 Notebook |
 
-**推荐路径**：入门用 Colab（点开官方 Notebook 即跑）→ 需要长时间训练时换 Kaggle。
+**推荐路径**：本文主线走 **Kaggle**——额度稳定（每周 30 小时、可预期）、导出 GGUF 时的系统内存也更宽裕。Colab 免费额度是**动态限时、不保证**的（额度耗尽会连不上 GPU 后端），适合额度恢复后点开官方 Notebook 快速起步。
 
 > 两个平台**代码零改动**：本文示例在 Colab 和 Kaggle 上都能直接跑，只有"数据放哪、怎么续训"的写法不同（见 2.3）。
 
@@ -80,11 +82,13 @@
 
 | 模型 | 平台 | batch_size | grad_accum | max_seq_len | r | 说明 |
 |------|------|------------|------------|-------------|---|------|
-| 3B QLoRA | Colab T4 | 4 | 2 | 2048 | 16 | 从容运行 |
-| **7B QLoRA** | **Colab T4** | **2** | **4** | **2048** | **16** | **本文默认配置** |
-| 8B QLoRA | Colab T4 | 2 | 4 | 2048 | 16 | Llama 3.1 等 |
+| 3B QLoRA | Kaggle T4 | 4 | 2 | 2048 | 16 | 从容运行 |
+| **7B QLoRA** | **Kaggle T4** | **2** | **4** | **2048** | **16** | **本文默认配置** |
+| 8B QLoRA | Kaggle T4 | 2 | 4 | 2048 | 16 | Llama 3.1 等 |
 | 14B QLoRA | Kaggle 2×T4 | 2 | 4 | 2048 | 16 | 需更大显存 |
 | 7B LoRA(16-bit) | Kaggle 2×T4 | 1 | 8 | 2048 | 16 | 19GB 显存需求 |
+
+> 前三行的 `Kaggle T4` 指**单张 T4（≈15GB）**，与 Colab 的 T4 配置完全相同，换平台不用改任何超参。Kaggle 默认给 T4 ×2，会话开头用 `%env CUDA_VISIBLE_DEVICES=0` 限定单卡（见 2.1）。
 
 > 这张表是全篇的配置总表（第五章不再重复列出）。这些值实际写在第四章代码的 `SFTConfig` 与 `get_peft_model` 里。
 
@@ -94,12 +98,15 @@
 
 > **用法**：备查——用官方 Notebook 时可跳过（Notebook 第一格会自动安装 Unsloth）。只有你自己写脚本时才需要这一章。
 
-### 2.1 Colab 环境配置
+### 2.1 环境配置（Colab / Kaggle 通用）
 
-**步骤 1：选择 GPU 运行时**（菜单：代码执行程序 → 更改运行时类型 → T4 GPU）
+**步骤 1：选好 GPU 运行时**
+
+- **Kaggle（本文主线）**：右侧设置面板里 Accelerator 选 `GPU T4 ×2`，并把 **Internet 打开**（两者都要求账号已验证）。Kaggle 默认给两张 T4，本文只用一张——会话第一格先执行 `%env CUDA_VISIBLE_DEVICES=0` 限定单卡。
+- **Colab（备选）**：菜单 代码执行程序 → 更改运行时类型 → T4 GPU。点开即用，不需要任何配置。
 
 ```python
-# 在 Colab 中运行，确认 GPU 可用
+# 确认 GPU 可用（两个平台都跑这一格）
 import torch
 print(f"PyTorch: {torch.__version__}")
 print(f"CUDA: {torch.cuda.is_available()}")
@@ -130,39 +137,46 @@ xformers = 'xformers==' + {'2.10':'0.0.34','2.9':'0.0.33.post1','2.8':'0.0.32.po
 - **不要加 `%%capture`**：它会把 pip 的报错一起吞掉，装失败时屏幕上看不出异常。
 - **这几行顺序是有意的**（先 `--no-deps` 装 trl，再单独钉版本），别重排。
 - 这格**不升级 torch**，所以在全新会话里"先装后跑"**不需要重启**；但若本会话已经 `import` 过 transformers / trl，装完**必须重启**，否则内存里还是旧版本。
-- **Colab 的运行时是按 notebook 独立的**：在别的 notebook 装过不算，每个 notebook 都要单独跑一次这一格。
+- **运行时是按 notebook 独立的**（Colab / Kaggle 都一样）：在别的 notebook 装过不算，每个 notebook 都要单独跑一次这一格。
 - **为什么去掉 if/else**：官方格用 `"COLAB_" not in os.environ` 判断平台（本地走 `!pip install unsloth`，云端走上面几行）。这个判断一旦在云端失效，整段安装会被**静默跳过且不报错**——这种失败最难查。这里只在云端跑，所以直接写无条件版。
-- **怎么确认装对了**：`trl` / `bitsandbytes` 都是这一格装的（Colab 不预装），跑完 `import trl, bitsandbytes` 不报错即成功；版本应为 `transformers==4.56.2` / `trl==0.22.2`，本文示例代码（`processing_class=` / `max_length=` / `eval_strategy=`）都在这个组合内可用。
+- **怎么确认装对了**：`trl` / `bitsandbytes` 都是这一格装的（两个平台都不预装），跑完 `import trl, bitsandbytes` 不报错即成功；版本应为 `transformers==4.56.2` / `trl==0.22.2`，本文示例代码（`processing_class=` / `max_length=` / `eval_strategy=`）都在这个组合内可用。
 - **pip 结尾的冲突警告怎么读**：正常情况下会打印一长串 `ERROR: pip's dependency resolver ...`，**大部分是噪音，不用管**——比如 `gradio` / `diffusers` 抱怨 `huggingface-hub` 版本低（本格把 hub 降到 0.36.2 是**预期行为**，`transformers==4.56.2` 就要求 `<1.0`），以及 `trl 1.14.1` 相关的两条（那是"钉版本"之前的中间态，最后一行跑完就消失）。**要管的只有一种**：`unsloth` / `unsloth_zoo` 报缺 `structlog` / `tyro` / `msgspec` / `cut_cross_entropy`——因为这一格用了 `--no-deps`，它们的运行期依赖不会被自动装上；若 `import unsloth` 报 `ModuleNotFoundError`，补一句 `!pip install --no-deps structlog tyro msgspec cut_cross_entropy`，然后重启会话。
 
-**步骤 3：挂载 Google Drive**（用于持久化数据和检查点）
+**步骤 3：确定工作目录（成果往哪放）**
+
+- **Kaggle**：直接写 `/kaggle/working/`，**不需要 mount**——会话结束时它自动保存为 Output，下次新建 Notebook 可把它挂成输入数据。
+- **Colab**：先挂载 Google Drive（见下面的代码块）。
 
 ```python
+# 仅 Colab 需要
 from google.colab import drive
 drive.mount('/content/drive')
 !mkdir -p /content/drive/MyDrive/unsloth-project
 ```
 
-### 2.2 Kaggle 环境配置
+### 2.2 平台差异与注意事项
 
-**步骤 1：开启 GPU 与 Internet**
+| | Kaggle（首选） | Colab（备选） |
+|---|---|---|
+| 开 GPU | Accelerator 选 `GPU T4 ×2` | 代码执行程序 → 更改运行时类型 → T4 GPU |
+| 联网 | **必须手动打开 Internet**（且账号已验证） | 默认可用 |
+| 单卡限定 | 建议 `%env CUDA_VISIBLE_DEVICES=0` | 本来就是单卡 |
+| 成果存放 | `/kaggle/working/`（自动存为 Output） | 挂载 Google Drive（见 2.1 步骤 3） |
+| 额度 | 每周 30 小时，更可预期 | 动态限时、不保证；耗尽会连不上 GPU |
+| 系统内存 | 宽裕，7B 导出基本能过 | 较紧——**导出 GGUF 时可能不足** |
 
-在 Notebook 右侧设置面板中：Accelerator 选 **GPU T4 ×2**，并把 **Internet** 打开。两者都需要账号已完成验证。
-
-**步骤 2：安装 Unsloth**
-
-**不用单独写**——直接复制 2.1 步骤 2 那一段。那一格是无条件版，Kaggle 上照跑即可，两个平台的版本钉法完全相同。
-
-> **平台唯一的差异**：Kaggle 必须先打开 Internet（步骤 1），否则 `pip` 装不了、数据集也下不来。
+> **为什么主线走 Kaggle**：Colab 的免费额度是**动态限时、不保证**的——额度耗尽时新建 Notebook 直接连不上 GPU 后端（本文这次切换就是这个原因）。Kaggle 每周 30 小时、更可预期，导出 GGUF 时系统内存也更宽裕。**Colab 额度恢复后仍可换回去**（它的好处是点开即用），代码一行不用改。
+> **Kaggle 的两个硬前提**：① **账号需完成验证**（手机号），否则 GPU 与 Internet 不能同时开；② **Internet 必须打开**，否则 `pip` 装不了、数据集也下不来。
+> **为什么限定单卡**：本文的配置与显存口径都是**按单张 T4** 算的。不限定的话两张卡都会被占上，白白多吃系统内存与额度。
 
 ### 2.3 存储与断线续训
 
 免费额度随时会断，训练成果必须落在持久化存储里：
 
-| | Colab | Kaggle |
+| | Kaggle（首选） | Colab（备选） |
 |---|---|---|
-| 放哪 | `/content/drive/MyDrive/unsloth-project`（需先 `drive.mount()`） | `/kaggle/working/`（会话结束时自动保存为 Output） |
-| 重连后 | 重新 mount 即可访问 | 把 Output 挂载为新 Notebook 的输入数据 |
+| 放哪 | `/kaggle/working/`（会话结束时自动保存为 Output） | `/content/drive/MyDrive/unsloth-project`（需先 `drive.mount()`） |
+| 重连后 | 把 Output 挂载为新 Notebook 的输入数据 | 重新 mount 即可访问 |
 
 **控制 checkpoint 体积**（两个平台都适用，免费空间都不大）：
 
@@ -481,7 +495,7 @@ tokenizer.save_pretrained("./qwen2.5-lora-adapter")
 model.save_pretrained_gguf(
     "./qwen2.5-gguf",
     tokenizer,
-    quantization_method="q4_k_m"  # 推荐量化方法
+    quantization_method="q4_k_m"  # Unsloth 默认，本项目选用
 )
 ```
 
@@ -491,18 +505,20 @@ model.save_pretrained_gguf(
 
 | 量化方式 | 体积 | 说明 |
 |----------|------|------|
-| `q4_k_m` | ≈4.4 GB | **推荐**，质量与体积平衡 |
+| `q4_k_m` | ≈4.4 GB | **本项目选用**（Unsloth 默认），质量与体积平衡 |
 | `q5_k_m` | ≈5.4 GB | 质量更高 |
+| `q6_k` | ≈6.6 GB | 较高质量 |
 | `q8_0` | ≈8 GB | 接近原精度 |
-| `q3_k_m` / `q2_k` | ≈3.5 / 2.8 GB | 更省空间，质量有损 |
+| `q3_k_m` | ≈3.5 GB | 更省空间，质量有损（内存实在不够时的退路） |
 
-> ⚠️ 导出时 Unsloth 会先把模型合并到 fp16 再量化，Colab 免费版的系统内存比较紧，7B 可能内存不足；如遇报错，换 Kaggle（内存更宽裕）或改用 `q3_k_m`。
+> ⚠️ 导出时 Unsloth 会先把模型合并到 fp16 再量化，**这一步吃的是系统内存**（不是显存）。本文在 **Kaggle** 上导出——系统内存比 Colab 免费档宽裕，7B 用默认的 **`q4_k_m`** 通常能过。若仍报内存不足，再降到 **`q3_k_m`**（只改上面代码块那一行，本节体积数字按表里 `q3_k_m` 那列替换）。
+> 降档的代价要清楚：少 1 bit，输出质量会有可感知的下降（更易答偏、格式更易崩）。
 
 > 📁 **完整代码**：`unsloth-finetuning-guide/export_gguf.py`
 
 ### 6.3 下载到本地
 
-把上一步生成的 `.gguf`（约 4.4GB）从云端下载到本地。建议先落 Google Drive / Kaggle Output 再下载，避免会话中断导致文件丢失。
+把上一步生成的 `.gguf`（约 4.4GB）从云端下载到本地。建议先在云端落盘（Kaggle 写 `/kaggle/working/`，会话结束自动存为 Output；Colab 则挂 Google Drive）再下载，避免会话中断导致文件丢失。
 
 ### 6.4 本地使用 Ollama 运行
 
@@ -533,7 +549,7 @@ ollama run qwen2.5-finetuned
 
 | 环节 | 在哪做 | 需要什么 |
 |------|--------|----------|
-| 环境准备 / 训练 / 调参 | 云端（Colab 或 Kaggle） | 免费 GPU 额度 |
+| 环境准备 / 训练 / 调参 | 云端（本文用 Kaggle） | 免费 GPU 额度 |
 | 导出 adapter / GGUF | 云端 | Unsloth（**不需要 Ollama**） |
 | 下载 GGUF | 本地 | 约 4.4GB 磁盘空间 |
 | 加载并对话 | 本地 | 已安装的 Ollama |
@@ -542,7 +558,7 @@ ollama run qwen2.5-finetuned
 
 ## 七、附录：官方 Notebook 清单（250+）
 
-> 所有 Notebook 均可在 Google Colab 免费运行，按需取用；完整列表：https://github.com/unslothai/notebooks
+> 下表给的是 Colab 打开链接；本文主线用 **Kaggle**，可 `File → Import Notebook → GitHub` 把同一份 Notebook 导进来跑（把链接里的 `colab.research.google.com/github/` 换成 `github.com/`）。完整列表（250+）：https://github.com/unslothai/notebooks
 > 文档：https://unsloth.ai/docs/get-started/unsloth-notebooks
 
 ### 基础微调 Notebooks
@@ -638,7 +654,7 @@ ollama run qwen2.5-finetuned
 ## 完成检查清单（验收用，不是待办）
 
 - [ ] 跑通至少 1 个官方 Notebook（如 Llama 3.1 8B Alpaca）
-- [ ] 云端环境可用（Colab 或 Kaggle，含 Unsloth 安装与存储挂载）
+- [ ] 云端环境可用（Kaggle：Unsloth 装好、Internet 已打开、已限定单卡）
 - [ ] 准备好数据集（Alpaca / ShareGPT，或自己的数据）
 - [ ] 完成 Qwen2.5-7B 的 QLoRA 微调，产出 LoRA adapter
 - [ ] 记录每次实验的参数与 loss

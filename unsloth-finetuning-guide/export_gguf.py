@@ -5,13 +5,13 @@ def export_to_gguf(model, tokenizer, output_dir="./qwen2.5-gguf",
                    quantization_method="q4_k_m"):
     """导出模型为 GGUF 格式"""
 
-    # 支持的量化方法
+    # 支持的量化方法（7B 体积为参考值）
     quant_methods = {
-        "q4_k_m": "4-bit，推荐（默认）",
-        "q8_0": "8-bit，质量更高",
-        "q5_k_m": "5-bit，平衡选择",
-        "q6_k": "6-bit，较高质量",
-        "q3_k_m": "3-bit，最小体积",
+        "q4_k_m": "4-bit，≈4.4GB，质量与体积平衡（Unsloth 默认，本项目选用）",
+        "q5_k_m": "5-bit，≈5.4GB，质量更高",
+        "q6_k": "6-bit，≈6.6GB，较高质量",
+        "q8_0": "8-bit，≈8GB，接近原精度",
+        "q3_k_m": "3-bit，≈3.5GB，更省空间，质量有损",
     }
 
     if quantization_method not in quant_methods:
@@ -34,10 +34,12 @@ def export_to_gguf(model, tokenizer, output_dir="./qwen2.5-gguf",
 if __name__ == "__main__":
     # 示例用法
     # export_to_gguf(model, tokenizer)
-    # export_to_gguf(model, tokenizer, quantization_method="q8_0")
+    # export_to_gguf(model, tokenizer, quantization_method="q4_k_m")
 
     print("GGUF 导出脚本")
-    print("支持的量化方法:")
-    print("  q4_k_m - 4-bit，推荐")
-    print("  q8_0 - 8-bit，质量更高")
-    print("  q5_k_m - 5-bit，平衡选择")
+    print("支持的量化方法（7B 体积为参考值）:")
+    print("  q4_k_m - 4-bit，≈4.4GB，质量与体积平衡（本项目选用）")
+    print("  q5_k_m - 5-bit，≈5.4GB，质量更高")
+    print("  q6_k - 6-bit，≈6.6GB，较高质量")
+    print("  q8_0 - 8-bit，≈8GB，接近原精度")
+    print("  q3_k_m - 3-bit，≈3.5GB，更省空间，质量有损")
