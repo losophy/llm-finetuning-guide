@@ -128,16 +128,6 @@ xformers = 'xformers==' + {'2.10':'0.0.34','2.9':'0.0.33.post1','2.8':'0.0.32.po
 !pip install --no-deps trl==0.22.2
 ```
 
-几个坑：
-
-- **不要加 `%%capture`**：它会把 pip 的报错一起吞掉，装失败时屏幕上看不出异常。
-- **这几行顺序是有意的**（先 `--no-deps` 装 trl，再单独钉版本），别重排。
-- 这格**不升级 torch**，所以在全新会话里"先装后跑"**不需要重启**；但若本会话已经 `import` 过 transformers / trl，装完**必须重启**，否则内存里还是旧版本。
-- **运行时是按 notebook 独立的**（Colab / Kaggle 都一样）：在别的 notebook 装过不算，每个 notebook 都要单独跑一次这一格。
-- **为什么去掉 if/else**：官方格用 `"COLAB_" not in os.environ` 判断平台（本地走 `!pip install unsloth`，云端走上面几行）。这个判断一旦在云端失效，整段安装会被**静默跳过且不报错**——这种失败最难查。这里只在云端跑，所以直接写无条件版。
-- **怎么确认装对了**：`trl` / `bitsandbytes` 都是这一格装的（两个平台都不预装），跑完 `import trl, bitsandbytes` 不报错即成功；版本应为 `transformers==4.56.2` / `trl==0.22.2`，本文示例代码（`processing_class=` / `max_length=` / `eval_strategy=`）都在这个组合内可用。
-- **pip 结尾的冲突警告怎么读**：正常情况下会打印一长串 `ERROR: pip's dependency resolver ...`，**大部分是噪音，不用管**——比如 `gradio` / `diffusers` 抱怨 `huggingface-hub` 版本低（本格把 hub 降到 0.36.2 是**预期行为**，`transformers==4.56.2` 就要求 `<1.0`），以及 `trl 1.14.1` 相关的两条（那是"钉版本"之前的中间态，最后一行跑完就消失）。**要管的只有一种**：`unsloth` / `unsloth_zoo` 报缺 `structlog` / `tyro` / `msgspec` / `cut_cross_entropy`——因为这一格用了 `--no-deps`，它们的运行期依赖不会被自动装上；若 `import unsloth` 报 `ModuleNotFoundError`，补一句 `!pip install --no-deps structlog tyro msgspec cut_cross_entropy`，然后重启会话。
-
 **步骤 3：确定工作目录（成果往哪放）**
 
 - **Kaggle**：直接写 `/kaggle/working/`，**不需要 mount**——会话结束时它自动保存为 Output，下次新建 Notebook 可把它挂成输入数据。
