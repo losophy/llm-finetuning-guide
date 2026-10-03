@@ -155,6 +155,7 @@ HuggingFace 官方博客的原话：
 | 学习率 | 2e-4，cosine，warmup 10 步 |
 | 优化器 | `adamw_8bit` |
 | LoRA | r=16 / alpha=32 / dropout=0 / `target_modules` 7 个（q,k,v,o,gate,up,down） |
+| **可训练参数量** | **40,370,176**（两侧必须一模一样——这是"同口径"唯一的硬指标，代码里断言两次） |
 | 精度 | fp16（T4 无 bf16） |
 | eval | 两侧都关闭 |
 
@@ -166,6 +167,7 @@ HuggingFace 官方博客的原话：
 4. **原生侧不要手动装 Flash Attention 2**，用 PyTorch 默认的 SDPA 即可（T4 上装 FA2 麻烦，且会改变对比口径）。
 5. **梯度检查点两侧对称**：Unsloth 用 `use_gradient_checkpointing="unsloth"`，原生用 `gradient_checkpointing_enable()`。这是被测量的差异本身，不算不公。
 6. **显存口径**：`reset_peak_memory_stats()` 在 `train()` **之前**调用，所以报的是**训练阶段峰值，不含模型加载**。填表时别当成整机峰值。
+7. **可训练参数量是"同口径"的硬指标**：4.3 代码在**加载后**和**构造 trainer 后**各断言一次，必须都等于 **40,370,176**——不等就不跑，省得白等一场训练。原生侧实测踩过一次 `trainable params: 0`（adapter 挂上了却被冻住），见 **4.8 ④**。
 
 ### 4.2 环境准备：安装格（两个 notebook 必须用逐字相同的这一格）
 
@@ -285,6 +287,15 @@ OUTPUT_DIR = f"./bench-{SIDE}"
 # 不要用 torch.cuda.is_bf16_supported() 自动判断：换到 L4 / A100 会让两侧口径不一致。
 COMPUTE_DTYPE = torch.float16
 
+# Unsloth 侧实测的可训练参数量（r=16 + 上面 7 个 target_modules 的 LoRA 参数量）。
+# 两侧必须完全相同：不等就说明 target_modules / LORA_R / LORA_ALPHA 有一侧漂了，数字作废。
+EXPECTED_TRAINABLE = 40_370_176
+
+
+def trainable_param_count(model):
+    """只数 requires_grad=True 的参数（与 PEFT 的 print_trainable_parameters 同一口径）"""
+    return sum(p.numel() for p in model.parameters() if p.requires_grad)
+
 
 def format_prompt(sample):
     """Alpaca 模板（与 unsloth-finetuning-guide/finetune_basic.py 一致）"""
@@ -362,6 +373,20 @@ def load_model():
             task_type=TaskType.CAUSAL_LM,
             target_modules=TARGET_MODULES,
         ))
+
+        # ── 明确只放开 adapter 的梯度 ─────────────────────────────────
+        # 实测（transformers 4.56 + peft 0.21 + trl 0.22.2 + bnb 0.50.2）：
+        # 这条"4-bit + device_map=auto + 手写 use_cache / gradient_checkpointing /
+        # enable_input_require_grads"的路径下，adapter 确实挂上了（总参数量与
+        # Unsloth 侧完全相同，也就是含 40,370,176 个 adapter 参数），但**全部是
+        # requires_grad=False**，于是 trainer.train() 会以
+        #     AssertionError: No inf checks were recorded for this optimizer.
+        # 收场——那句报错只是症状（优化器一个梯度都没收到），真因在这里。
+        # 等价于 PEFT 内部的 _mark_only_adapters_as_trainable：只有 lora_* 可训练，
+        # 基座 / embedding / lm_head 依旧冻结；数量由 EXPECTED_TRAINABLE 兜底校验。
+        for _n, _p in model.named_parameters():
+            _p.requires_grad_("lora_" in _n)
+
         return model, tokenizer
 
     raise ValueError(f'SIDE 只能填 "unsloth" 或 "native"，当前是 {SIDE!r}')
@@ -493,8 +518,32 @@ if _alloc > 8:
         "  另外两侧都别再手动传 bf16 相关参数。" % _alloc
     )
 
+# ── 梯度自检：可训练参数量必须与 Unsloth 侧完全相同 ─────────────────
+# 这是本基准唯一的"同口径"硬指标——两侧的 LoRA 必须是同一批、同样的数量。
+# 原生侧曾出现 "trainable params: 0"（adapter 挂上了却被冻住），症状是训练时抛
+# "No inf checks were recorded for this optimizer"——报错点离真因很远，所以提前拦下。
+_trainable = trainable_param_count(model)
+print("可训练参数量  : %s / 期望 %s" % (f"{_trainable:,}", f"{EXPECTED_TRAINABLE:,}"))
+if _trainable != EXPECTED_TRAINABLE:
+    raise RuntimeError(
+        "可训练参数量 = %s，期望 %s（Unsloth 侧实测值）。\n"
+        "→ 0 或明显偏小：adapter 没挂上 / 被冻住（见 4.8 ④）；\n"
+        "→ 数量接近但不等：target_modules、LORA_R、LORA_ALPHA 有一侧漂了。\n"
+        "  两种情况都会让耗时不可比，先修再跑。" % (f"{_trainable:,}", f"{EXPECTED_TRAINABLE:,}")
+    )
+
 train_dataset = build_dataset()
 trainer = build_trainer(model, tokenizer, train_dataset)
+
+# 构造 trainer 之后再数一次：确认 SFTTrainer 没有动 requires_grad
+# （两侧共用同一段 build_trainer，Unsloth 侧是 40,370,176，正常情况下它不会动）。
+_after_trainer = trainable_param_count(model)
+if _after_trainer != _trainable:
+    raise RuntimeError(
+        "SFTTrainer 构造后，可训练参数量从 %s 变成了 %s —— 训练器动了 requires_grad，"
+        "这组对照不作数。" % (f"{_trainable:,}", f"{_after_trainer:,}")
+    )
+
 model.print_trainable_parameters()
 print("-" * 60)
 
@@ -535,7 +584,7 @@ print("保留显存(GB) :", torch.cuda.max_memory_reserved() / 1e9)
 >
 > 也就是说**它的部分优化没生效**——那样测出来的耗时对 Unsloth 不公平。4.3 的代码已经规避了这点：全篇不出现 `import transformers`，查版本改用 `importlib.metadata`（只读元数据、不导入包），所以预检里那次 `from unsloth import FastLanguageModel` 就是第一次导入。**看到这条警告，说明数字要重跑。**
 >
-> 本项目实测踩过一次：有警告那次 416.46 s，修掉之后 370.80 s，差 11%（对照见 4.6；n=1 对 n=1，别把这 11% 直接当结论）。
+> 本项目实测踩过一次：有警告那次 416.46 s；修掉后两次干净运行 370.80 / 343.30 s（均值 **357.05 s**），差距约 **17%**（对照见 4.6 的运行记录）。方向一致，但 n=1 对 n=2 仍不宜当定论——**至少别拿单次跑出来的差值下结论**。
 
 ### 4.5 降档预案
 
@@ -553,26 +602,41 @@ print("保留显存(GB) :", torch.cuda.max_memory_reserved() / 1e9)
 
 | 指标 | Unsloth | 原生 HF | 倍数 / 差异 |
 |---|---|---|---|
-| 训练耗时（s） | 370.80 † | | |
+| 训练耗时（s） | 357.05 † | | |
 | 峰值显存（GB） | 8.76 † | | |
-| 每秒样本数 | 1.294 † | | |
+| 每秒样本数 | 1.346 † | | |
 | 可训练参数量 | 40,370,176 † | | |
 
-> † **Unsloth 侧只有 1 次干净运行，尚未取平均**（口径要求 2~3 次）。原生 HF 侧还没跑出来，所以"倍数 / 差异"栏全部留空——**两侧都齐了才算数**。
+> † **Unsloth 侧 = 2 次干净运行的算术平均**（口径要求 2~3 次；补第 3 次能让均值更稳）。原生 HF 侧还没跑出来，所以"倍数 / 差异"栏全部留空——**两侧都齐了才算数**。
 
-**已作废的上一次数字（不要填进表）**：Unsloth 侧曾跑出 **416.46 s / 1.153 样本每秒**，那一次的日志头部有 `Unsloth should be imported before [transformers]` 警告（详见 4.4 末尾），并且运行时未重启（4.8 ①）。**两次相差 11%**，但**不能直接把这 11% 记在导入顺序上**——n=1 对 n=1，Colab 同一型号实例之间本身也有几个百分点的波动。可以确定的是：那次过程不干净、教训成立，所以作废。
+**Unsloth 侧运行记录**（原始数据，便于回溯）
 
-**两次唯一确定相同的两项**：峰值显存 **8.76 GB**、六步 loss 曲线（1.154400 / 1.097500 / 1.026000 / 1.063100 / 0.976100 / 1.122600）**逐位相同**。也就是说**这一层差别只落在速度上，数学与显存没变**——与第三节"Unsloth 的加速来自等价的内核替换"是一致的（但 1 次 vs 1 次仍不足以当结论，等两次都取平均后再说）。
+| # | 状态 | 耗时（s） | 每秒样本数 | 峰值显存（GB） |
+|---|---|---|---|---|
+| 1 | ✗ 有导入顺序警告 + 运行时未重启 → 作废 | 416.46 | 1.153 | 8.76 |
+| 2 | ✓ 干净 | 370.80 | 1.294 | 8.76 |
+| 3 | ✓ 干净 | 343.30 | 1.398 | 8.76 |
+| — | **均值（仅 #2 / #3）** | **357.05** | **1.346** | **8.76** |
 
-> **填表前先自检**：两侧"可训练参数量"必须**完全相同**。不一致说明 `target_modules` / `r` / `alpha` 有一侧漂了，这组数字作废。
+> 两点读数提示：① 两次干净运行之间就相差 **8.0%**（370.80 vs 343.30），这是单次数字的噪声量级——所以"跑 2~3 次取平均"不是形式主义。② `每秒样本数` 取两次实测值的算术平均（1.294、1.398 → 1.346）；若用 `480 ÷ 357.05` 反推得 **1.344**，两者差 0.2%，属"平均速率 vs 平均耗时的倒数"的换算差异。
+
+**#1 为什么作废**：那一次的日志头部有 `Unsloth should be imported before [transformers]` 警告（详见 4.4 末尾），且运行时未重启（4.8 ①）。
+
+它 **416.46 s**，比两次干净运行的均值 **357.05 s** 慢 **16.6%**；而两次干净运行彼此只差 **8.0%**——**这一档差距超出了噪声范围**，方向与"导入顺序影响优化是否全开"一致。但 **n=1 对 n=2 仍不足以定论**：等 Unsloth 侧补第 3 次干净运行、原生侧也跑完，再决定要不要把这条写进结论。可以确定的是：那次过程不干净、教训成立，所以作废。
+
+**三次运行完全相同的两项**：峰值显存 **8.76 GB**、六步 loss 曲线（1.154400 / 1.097500 / 1.026000 / 1.063100 / 0.976100 / 1.122600）**逐位相同**——**包括那次带警告的 #1**。也就是说**差别只落在速度上，数学与显存都没变**：与第三节"Unsloth 的加速来自等价的内核替换"一致，也是"快 16% 不是因为少算了什么"的最直接证据。
+
+> **填表前先自检**：两侧"可训练参数量"必须都是 **40,370,176**。不一致说明 `target_modules` / `r` / `alpha` 有一侧漂了，这组数字作废。（4.3 代码里已断言两次，正常情况下根本跑不到填表这一步。）
 
 **环境脚注（每次都要填）**
 
-- GPU 型号：______（`torch.cuda.get_device_name(0)`）
-- 库版本：torch ___ / transformers ___ / trl ___ / peft ___ / bitsandbytes ___
+- GPU 型号：**Tesla T4**（`torch.cuda.get_device_name(0)`；报告 15.64 GB / 可用 14.56 GiB）
+- 库版本（Unsloth 侧实测，**原生侧必须逐项一致**）：torch **2.11.0+cu130** / transformers **4.56.2** / trl **0.22.2** / peft **0.21.0** / bitsandbytes **0.50.2**
 - `max_steps=60`，`max_length=2048`，batch 2 × accum 4
 - `target_modules`：q,k,v,o,gate,up,down（7 个）
-- 跑了几次、是否取平均：______
+- 跑了几次、是否取平均：Unsloth 侧 **2 次干净运行取算术平均**；原生侧待跑
+- 加载后显存：Unsloth 侧 **7.73 GB**（自检阈值 <8 GB 通过，说明 4-bit 生效）
+- **原生侧进展**：已能加载（加载后 **5.72 GB**，4-bit 同样生效）并跑过数据 + trainer 构造，但卡在 `trainable params: 0`（见 **4.8 ④**）。修复后重跑才有原生列数字。
 - 「可训练参数量」两侧应完全相同——不一致说明口径漂了，数字作废
 
 ### 4.7 官方公开数字（**非本人实测，仅作量级参考**）
@@ -639,7 +703,36 @@ print("config    :", AutoConfig.from_pretrained("Qwen/Qwen2.5-7B").torch_dtype)
 
 **③ `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True`**（报错信息自己会建议）必须在**本会话第一次 `import torch` 之前**设置才生效。而安装格（4.2）里就有 `import torch`——所以**放进 4.3 那段代码是没用的**，要加只能加到 4.2 安装格的最前面，或更早的一格。
 
-**④ 其他限制**
+**④ 原生侧 `trainable params: 0`——adapter 挂上了，却被冻住。**
+
+现象：加载正常、数据正常，`print_trainable_parameters()` 却打印
+
+```
+trainable params: 0 || all params: 7,655,986,688 || trainable%: 0.0000
+```
+
+随后训练抛 `AssertionError: No inf checks were recorded for this optimizer.`——**报错在 `GradScaler`，真因在梯度**：那句只是"优化器一个梯度都没收到"，因为没有任何参数 `requires_grad=True`。
+
+**怎么一眼判断 adapter 到底挂没挂**——拿总参数量做减法：
+
+| 数 | 值 | 含义 |
+|---|---|---|
+| 基座 | 7,615,616,512 | = all params − LoRA |
+| Unsloth 侧 `all params` | **7,655,986,688** | 含 40,370,176 个 adapter（验算：40,370,176 ÷ 7,655,986,688 = **0.5273%**，正是日志里的 trainable%） |
+| 原生侧 `all params` | **7,655,986,688** | **同一个数** → adapter 也挂上了，只是全被冻住 |
+
+**修法**：4.3 的 native 分支里已加显式解冻——`get_peft_model` 之后
+
+```python
+for _n, _p in model.named_parameters():
+    _p.requires_grad_("lora_" in _n)
+```
+
+等价于 PEFT 内部的 `_mark_only_adapters_as_trainable`：只有 `lora_*` 可训练，基座 / embedding / lm_head 依旧冻结。**别删这一行。** 数量另有 `EXPECTED_TRAINABLE`（40,370,176）兜底断言，两侧不一致会在训练开始前就停下。
+
+> 还没完全定位"是谁把 adapter 冻成 `False`"（PEFT 内部标记，或 adapter 未被激活）。但它已经变成**可判定**的：加载后、构造 trainer 后各断言一次。若解冻后仍抛同一句 `No inf checks`，就说明 adapter 没进计算图（未激活），那就改走"把 `LoraConfig` 传给 `SFTTrainer(peft_config=...)`、由 TRL 自己挂 adapter"这条路。
+
+**⑤ 其他限制**
 
 - **`Qwen/Qwen2.5-7B` 是 fp16 权重（约 15GB）**，两个 notebook 各自要下载一次，比用 Unsloth 预量化仓慢。这是为"同一份权重"付的代价。若确实嫌慢，可以两侧**都**改成 `unsloth/Qwen2.5-7B-bnb-4bit`（原生侧也能加载），但**绝不允许只改一侧**。
 - **单卡对比**，不含多卡 / DeepSpeed 场景。
