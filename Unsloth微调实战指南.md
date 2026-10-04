@@ -98,19 +98,34 @@
 
 **步骤 1：选好 GPU 运行时**
 
-- **Kaggle（本文主线）**：右侧设置面板里 Accelerator 选 `GPU T4 ×2`，并把 **Internet 打开**（两者都要求账号已验证）。Kaggle 默认给两张 T4，本文只用一张——会话第一格先执行 `%env CUDA_VISIBLE_DEVICES=0` 限定单卡。
-- **Colab（备选）**：菜单 代码执行程序 → 更改运行时类型 → T4 GPU。点开即用，不需要任何配置。
+- **Kaggle（本文主线）**：右侧设置面板里 Accelerator 选 `GPU T4 ×2`，并把 **Internet 打开**（两者都要求账号已验证）。注意 Kaggle 的 GPU 档位**只有 `GPU T4 ×2`**（没有"单 T4"可选），两张卡都会分配给你——本文只用一张，下一步立刻限掉。
+- **Colab（备选）**：菜单 代码执行程序 → 更改运行时类型 → T4 GPU。Colab 本来就只有一张卡，**跳过步骤 2**。
+
+**步骤 2：限定单卡（仅 Kaggle 需要）**
+
+Kaggle 分给你 2 张 T4。不限制的话，Unsloth 检测到两张卡会**自动把模型切开、跨卡训练**（张量并行）——既慢，又和本文"单卡 T4"的配置口径对不上。所以**第一个代码格**就执行：
 
 ```python
-# 确认 GPU 可用（两个平台都跑这一格）
+%env CUDA_VISIBLE_DEVICES=0
+```
+
+> ⚠️ **这一格必须排在本 notebook 任何 `import torch` / `torch.cuda.*` 之前——也就是整份 notebook 的第一格。**
+> `CUDA_VISIBLE_DEVICES` 只在 CUDA **首次初始化**时生效。一旦跑过下面的步骤 3、或任何加载模型的代码，CUDA 就已经在两张卡上初始化完毕，此时再设**无效**，模型照旧吃满两张卡。
+> **怎么确认生效**：步骤 3 会打印"可见 GPU 数"（应为 1）；加载模型时 Unsloth 横幅应显示 `Num GPUs = 1`。若看到 `Num GPUs = 2` 或 `output head -> cuda:1`，说明限晚了——CUDA 初始化不可逆，只能**重启会话**重来。
+
+**步骤 3：确认 GPU 可用**
+
+```python
+# 两个平台都跑这一格
 import torch
 print(f"PyTorch: {torch.__version__}")
 print(f"CUDA: {torch.cuda.is_available()}")
 print(f"GPU: {torch.cuda.get_device_name(0)}")
 print(f"VRAM: {torch.cuda.get_device_properties(0).total_memory / 1e9:.1f} GB")
+print(f"可见 GPU 数: {torch.cuda.device_count()}")  # Kaggle 限卡后应为 1
 ```
 
-**步骤 2：安装 Unsloth**
+**步骤 4：安装 Unsloth**
 
 取自 Unsloth 官方 notebook 的安装格，**去掉了 if/else 分支**（原因见下），Colab / Kaggle 通用，版本已钉死在 Unsloth 测试过的组合上：
 
@@ -128,7 +143,7 @@ xformers = 'xformers==' + {'2.10':'0.0.34','2.9':'0.0.33.post1','2.8':'0.0.32.po
 !pip install --no-deps trl==0.22.2
 ```
 
-**步骤 3：确定工作目录（成果往哪放）**
+**步骤 5：确定工作目录（成果往哪放）**
 
 - **Kaggle**：直接写 `/kaggle/working/`，**不需要 mount**——会话结束时它自动保存为 Output，下次新建 Notebook 可把它挂成输入数据。
 - **Colab**：先挂载 Google Drive（见下面的代码块）。
@@ -146,14 +161,14 @@ drive.mount('/content/drive')
 |---|---|---|
 | 开 GPU | Accelerator 选 `GPU T4 ×2` | 代码执行程序 → 更改运行时类型 → T4 GPU |
 | 联网 | **必须手动打开 Internet**（且账号已验证） | 默认可用 |
-| 单卡限定 | 建议 `%env CUDA_VISIBLE_DEVICES=0` | 本来就是单卡 |
-| 成果存放 | `/kaggle/working/`（自动存为 Output） | 挂载 Google Drive（见 2.1 步骤 3） |
+| 单卡限定 | **必须**，且要放在首个代码格（见 2.1 步骤 2） | 本来就是单卡 |
+| 成果存放 | `/kaggle/working/`（自动存为 Output） | 挂载 Google Drive（见 2.1 步骤 5） |
 | 额度 | 每周 30 小时，更可预期 | 动态限时、不保证；耗尽会连不上 GPU |
 | 系统内存 | 宽裕，7B 导出基本能过 | 较紧——**导出 GGUF 时可能不足** |
 
 > **为什么主线走 Kaggle**：Colab 的免费额度是**动态限时、不保证**的——额度耗尽时新建 Notebook 直接连不上 GPU 后端（本文这次切换就是这个原因）。Kaggle 每周 30 小时、更可预期，导出 GGUF 时系统内存也更宽裕。**Colab 额度恢复后仍可换回去**（它的好处是点开即用），代码一行不用改。
 > **Kaggle 的两个硬前提**：① **账号需完成验证**（手机号），否则 GPU 与 Internet 不能同时开；② **Internet 必须打开**，否则 `pip` 装不了、数据集也下不来。
-> **为什么限定单卡**：本文的配置与显存口径都是**按单张 T4** 算的。不限定的话两张卡都会被占上，白白多吃系统内存与额度。
+> **为什么限定单卡**：本文的配置与显存口径都是**按单张 T4** 算的。Kaggle 只会给 `GPU T4 ×2`（没有单卡档位），不限制的话 Unsloth 会把模型切开跨两张卡跑、还多吃系统内存与额度。**关键是时序**：`%env CUDA_VISIBLE_DEVICES=0` 必须在 CUDA 初始化之前——否则无效，只能重启会话（详见 2.1 步骤 2）。
 
 ### 2.3 存储与断线续训
 
@@ -374,7 +389,7 @@ def create_trainer(model, tokenizer, train_dataset, eval_dataset,
             max_length=max_length,
             per_device_train_batch_size=2,
             gradient_accumulation_steps=4,
-            num_train_epochs=3,
+            num_train_epochs=2,                 # 默认 1000 条子集下 1~2 轮即可（3 轮会过拟合）
             learning_rate=2e-4,
             fp16=not torch.cuda.is_bf16_supported(),
             bf16=torch.cuda.is_bf16_supported(),
@@ -460,7 +475,7 @@ training_args = TrainingArguments(
     warmup_steps=10,                    # 预热步数（新版已移除 warmup_ratio）
 
     # 训练轮次
-    num_train_epochs=3,                 # 避免过拟合（1-3轮推荐）
+    num_train_epochs=2,                 # 1~2 轮足够；默认 1000 条子集下 3 轮即过拟合
 
     # 精度：按显卡能力自动选。T4 不支持 bf16，写死 bf16=True 会静默跑错精度
     fp16=not torch.cuda.is_bf16_supported(),
@@ -487,7 +502,7 @@ training_args_8gb = TrainingArguments(
     learning_rate=2e-4,
     lr_scheduler_type="cosine",
     warmup_steps=10,
-    num_train_epochs=3,
+    num_train_epochs=2,
 
     fp16=True,                          # 8GB 卡（如 RTX 4060 Ti）用 fp16
     bf16=False,
@@ -508,8 +523,10 @@ training_args_8gb = TrainingArguments(
 
 #### 问题 1：过拟合（训练损失下降，验证损失上升）
 
+> **实测（Kaggle T4）**：默认 `yahma/alpaca-cleaned` 取 1000 条（train 800）时，`num_train_epochs=3` 跑出训练损失 0.977→0.834→0.535，而验证损失 1.051→1.101→1.226 **持续回升**——就是这个子集下 **3 轮已经太多**。本文默认已改为 **2**。
+
 - 增加 `lora_dropout`（0.05→0.1）
-- 减少 `num_train_epochs`
+- **减少 `num_train_epochs`**（数据越少、轮数越要少；本文默认 2，仍过拟合就降到 1）
 - 增加数据集规模
 - 降低 `r`（如 16→8）
 
@@ -747,7 +764,7 @@ ollama run qwen2.5-finetuned
 ## 完成检查清单（验收用，不是待办）
 
 - [ ] 跑通至少 1 个官方 Notebook（如 Llama 3.1 8B Alpaca）
-- [ ] 云端环境可用（Kaggle：Unsloth 装好、Internet 已打开、已限定单卡）
+- [ ] 云端环境可用（Kaggle：Unsloth 装好、Internet 已打开、**首格已执行 `%env CUDA_VISIBLE_DEVICES=0`**）
 - [ ] 数据就绪（默认自动下载 `yahma/alpaca-cleaned`，**无需自备**；或换成 Alpaca / ShareGPT 格式的自己的数据）
 - [ ] 完成 Qwen2.5-7B 的 QLoRA 微调，产出 LoRA adapter
 - [ ] 记录每次实验的参数与 loss
