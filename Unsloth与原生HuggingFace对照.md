@@ -163,7 +163,7 @@ HuggingFace 官方博客的原话：
 
 1. **不用 `unsloth/Qwen2.5-7B-bnb-4bit`。** 预量化权重和加载时量化可能不完全等价，会被质疑"权重来源不一致"。两侧都用官方 `Qwen/Qwen2.5-7B`。
 2. **`target_modules` 必须都是 7 个。** 指南 4.1 的代码块是 7 个、原生脚本是 4 个——直接拿那两份代码比，可训练参数量不同，耗时不可比。
-3. **精度写死 fp16。** 别用 `torch.cuda.is_bf16_supported()` 自动判断，换到 L4 / A100 两侧就会不一致。
+3. **精度写死 fp16。** 别用 `torch.cuda.is_bf16_supported()` 自动判断，两个理由：① 新版 PyTorch 默认把"软件模拟"也算作支持，**T4 上会误报 `True`**（实测 torch 2.11.0+cu128 = `True`，实为 fp32 模拟、**慢数倍**）；② 换到 L4 / A100 两侧还会不一致。
 4. **原生侧不要手动装 Flash Attention 2**，用 PyTorch 默认的 SDPA 即可（T4 上装 FA2 麻烦，且会改变对比口径）。
 5. **梯度检查点两侧对称**：Unsloth 用 `use_gradient_checkpointing="unsloth"`，原生用 `gradient_checkpointing_enable()`（写在 `load_model()` 的 native 分支里）。这是被测量的差异本身，不算不公。**别图省事把它挪进共用的 `SFTConfig`**：那会让 TRL 调标准的 `gradient_checkpointing_enable()` 去覆盖 Unsloth 自己的 GC，等于动了被测对象。
 6. **显存口径**：`reset_peak_memory_stats()` 在 `train()` **之前**调用，所以报的是**训练阶段峰值，不含模型加载**。填表时别当成整机峰值。
@@ -284,7 +284,8 @@ TARGET_MODULES = ["q_proj", "k_proj", "v_proj", "o_proj",
 OUTPUT_DIR = f"./bench-{SIDE}"
 
 # T4 不支持 bf16 → 两侧都强制 fp16。
-# 不要用 torch.cuda.is_bf16_supported() 自动判断：换到 L4 / A100 会让两侧口径不一致。
+# 不要用 torch.cuda.is_bf16_supported() 自动判断：新版 PyTorch 默认把软件模拟也算作支持，
+# T4 上会误报 True（实测 2.11.0+cu128 = True，实为 fp32 模拟、慢数倍）；换到 L4 / A100 两侧口径还会不一致。
 COMPUTE_DTYPE = torch.float16
 
 # Unsloth 侧实测的可训练参数量（r=16 + 上面 7 个 target_modules 的 LoRA 参数量）。

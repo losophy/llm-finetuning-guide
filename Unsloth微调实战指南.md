@@ -200,12 +200,17 @@ if torch.cuda.is_available():
     print(f"GPU 名称: {torch.cuda.get_device_name(0)}")
     print(f"VRAM 容量: {gpu_props.total_memory / 1e9:.1f} GB")
     print(f"计算能力: {gpu_props.major}.{gpu_props.minor}")
-    print(f"BF16 支持: {torch.cuda.is_bf16_supported()}")
+    # 判据用「算力」，不要用 torch.cuda.is_bf16_supported()——原因见下方说明
+    print(f"BF16 原生支持: {gpu_props.major >= 8}")
 else:
     print("警告: 未检测到 NVIDIA GPU，请确保已启用 GPU 运行时")
 ```
 
-> **预期结果**：CUDA 可用 = `True`，VRAM ≈ 15.x GB（T4 / 16GB 卡），**BF16 支持 = `False`**——T4 的算力是 7.5，**不支持 bf16**，所以本项目全程用 **fp16**（见 5.1）。这一行就是提前发现"精度跑错"的信号灯。
+> **预期结果**：CUDA 可用 = `True`，VRAM ≈ 15.x GB（T4 / 16GB 卡），**BF16 原生支持 = `False`**——T4 的算力是 7.5，**没有原生 bf16**，所以本项目全程用 **fp16**（见 5.1）。这一行就是提前发现"精度跑错"的信号灯。
+>
+> ⚠️ **判据必须是「算力」，不能用 `torch.cuda.is_bf16_supported()`**。新版 PyTorch 的这个函数默认把"软件模拟"也算作支持（`including_emulation` 默认为 `True`）——**在 T4 上它会返回 `True`**（本项目实测 torch 2.11.0+cu128 = `True`），但那是 fp32 模拟出来的，**并非真能用**：社区在 Kaggle T4 上的同类任务实测，bf16 模拟比 fp16 慢约 4×。
+>
+> 对照着看：`torch.cuda.is_bf16_supported(including_emulation=False)` 才会返回 `False`。为避免依赖这个参数名，4.1 / 5.1 的精度开关统一写成 `torch.cuda.get_device_capability()[0] >= 8`。
 
 ---
 
@@ -391,8 +396,10 @@ def create_trainer(model, tokenizer, train_dataset, eval_dataset,
             gradient_accumulation_steps=4,
             num_train_epochs=2,                 # 默认 1000 条子集下 1~2 轮即可（3 轮会过拟合）
             learning_rate=2e-4,
-            fp16=not torch.cuda.is_bf16_supported(),
-            bf16=torch.cuda.is_bf16_supported(),
+            # 精度：按「算力」判断。T4（算力 7.5）没有原生 bf16 → 走 fp16。
+            # 别用 torch.cuda.is_bf16_supported()：新版 PyTorch 默认把软件模拟也算作支持，T4 上会误报 True（见 2.4）。
+            fp16=torch.cuda.get_device_capability()[0] < 8,
+            bf16=torch.cuda.get_device_capability()[0] >= 8,
             logging_steps=10,
             save_steps=100,
             optim="adamw_8bit",
@@ -477,9 +484,10 @@ training_args = TrainingArguments(
     # 训练轮次
     num_train_epochs=2,                 # 1~2 轮足够；默认 1000 条子集下 3 轮即过拟合
 
-    # 精度：按显卡能力自动选。T4 不支持 bf16，写死 bf16=True 会静默跑错精度
-    fp16=not torch.cuda.is_bf16_supported(),
-    bf16=torch.cuda.is_bf16_supported(),
+    # 精度：按「算力」判断。T4（7.5）没有原生 bf16，写死 bf16=True 会走 fp32 模拟、静默慢数倍。
+    # 别用 torch.cuda.is_bf16_supported()：新版 PyTorch 默认把软件模拟也算作支持，T4 上会误报 True（见 2.4）。
+    fp16=torch.cuda.get_device_capability()[0] < 8,
+    bf16=torch.cuda.get_device_capability()[0] >= 8,
 
     # 其他
     gradient_checkpointing=True,        # 节省 VRAM
@@ -546,6 +554,7 @@ training_args_8gb = TrainingArguments(
 
 #### 问题 4：训练速度慢
 
+- **先查精度档**：T4 上必须真正走 **fp16**。若精度开关是按 `torch.cuda.is_bf16_supported()` 写的，T4 会被误判成"支持 bf16"，实际是 fp32 模拟、**慢数倍**（见 2.4）
 - 确认 `use_gradient_checkpointing="unsloth"`（这是 Unsloth 自带的优化内核，**不需要手动安装 Flash Attention 2**——官方不建议在 Windows 上手动编译 FA2）
 - 检查 GPU 利用率（`nvidia-smi`）
 - 缩短 `max_seq_length`、减小数据集规模
@@ -765,6 +774,7 @@ ollama run qwen2.5-finetuned
 
 - [ ] 跑通至少 1 个官方 Notebook（如 Llama 3.1 8B Alpaca）
 - [ ] 云端环境可用（Kaggle：Unsloth 装好、Internet 已打开、**首格已执行 `%env CUDA_VISIBLE_DEVICES=0`**）
+- [ ] 精度档正确（2.4 打印 **BF16 原生支持 = `False`**，训练实际走 fp16；理由见 2.4 的 ⚠️ 说明）
 - [ ] 数据就绪（默认自动下载 `yahma/alpaca-cleaned`，**无需自备**；或换成 Alpaca / ShareGPT 格式的自己的数据）
 - [ ] 完成 Qwen2.5-7B 的 QLoRA 微调，产出 LoRA adapter
 - [ ] 记录每次实验的参数与 loss
