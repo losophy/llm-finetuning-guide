@@ -168,7 +168,7 @@ drive.mount('/content/drive')
 
 > **为什么主线走 Kaggle**：Colab 的免费额度是**动态限时、不保证**的——额度耗尽时新建 Notebook 直接连不上 GPU 后端（本文这次切换就是这个原因）。Kaggle 每周 30 小时、更可预期，导出 GGUF 时系统内存也更宽裕。**Colab 额度恢复后仍可换回去**（它的好处是点开即用），代码一行不用改。
 > **Kaggle 的两个硬前提**：① **账号需完成验证**（手机号），否则 GPU 与 Internet 不能同时开；② **Internet 必须打开**，否则 `pip` 装不了、数据集也下不来。
-> **为什么限定单卡**：本文的配置与显存口径都是**按单张 T4** 算的。Kaggle 只会给 `GPU T4 ×2`（没有单卡档位），不限制的话 Unsloth 会把模型切开跨两张卡跑、还多吃系统内存与额度。**关键是时序**：`%env CUDA_VISIBLE_DEVICES=0` 必须在 CUDA 初始化之前——否则无效，只能重启会话（详见 2.1 步骤 2）。
+> **为什么限定单卡**：本文的配置与显存口径都是**按单张 T4** 算的。Kaggle 只会给 `GPU T4 ×2`（没有单卡档位），不限制的话 Unsloth 会把模型切开跨两张卡跑、还多吃系统内存与额度。**实测印证**：同一份配置，双卡张量并行每步 5.6 s、限成单卡后 5.7 s——跨卡通信把第二张卡的收益基本吃光了，等于白占一份额度。**关键是时序**：`%env CUDA_VISIBLE_DEVICES=0` 必须在 CUDA 初始化之前——否则无效，只能重启会话（详见 2.1 步骤 2）。
 
 ### 2.3 存储与断线续训
 
@@ -531,7 +531,15 @@ training_args_8gb = TrainingArguments(
 
 #### 问题 1：过拟合（训练损失下降，验证损失上升）
 
-> **实测（Kaggle T4）**：默认 `yahma/alpaca-cleaned` 取 1000 条（train 800）时，`num_train_epochs=3` 跑出训练损失 0.977→0.834→0.535，而验证损失 1.051→1.101→1.226 **持续回升**——就是这个子集下 **3 轮已经太多**。本文默认已改为 **2**。
+> **实测（Kaggle 单卡 T4，同一份 1000 条子集 / train 800，每 100 步评估一次）**
+>
+> | 轮次 | step 100 | step 200 | step 300 | val 涨幅 |
+> |---|---|---|---|---|
+> | **3 轮**（旧默认） | train 0.977 / val 1.051 | train 0.834 / val 1.101 | train 0.535 / val **1.226** | **+0.175** |
+> | **2 轮**（现默认） | train 0.977 / val 1.050 | train 0.863 / val **1.077** | — | **+0.027** |
+>
+> 两次的验证损失都持续回升：**3 轮明显过头；改 2 轮后涨幅降到约 1/6**，但没有归零——严格说仍在过拟合。另一处要注意：**保存下来的是最后一步（200）**，而两次评估里验证损失最低的是第 **100** 步。
+> 想再压，两条路：① 降到 1 轮（见下面第 2 条建议）；② 保持 2 轮，只让保存取验证损失最低的那一步——加 `load_best_model_at_end=True` + `metric_for_best_model="eval_loss"`（要求 `save_steps` 能整除 `eval_steps`，本文都是 100，已满足）。
 
 - 增加 `lora_dropout`（0.05→0.1）
 - **减少 `num_train_epochs`**（数据越少、轮数越要少；本文默认 2，仍过拟合就降到 1）
@@ -551,8 +559,11 @@ training_args_8gb = TrainingArguments(
 - 增加 `gradient_accumulation_steps`（4→8）
 - 确保使用 QLoRA（`load_in_4bit=True`）
 - 确认 `use_gradient_checkpointing="unsloth"` 已开启
+- 看到 `Unsloth: Will smartly offload gradients to save VRAM!` **不是错误**：这是 Unsloth 自动开了「卸载式梯度检查点」，把反向传播要用的中间激活异步挪到系统内存、用完再取回。16GB 卡跑 7B@2048 属于正常策略，官方称额外开销约 2%
 
 #### 问题 4：训练速度慢
+
+> **正常速度参照（实测）**：Kaggle **单卡** T4 + Qwen2.5-7B(4-bit) + `max_seq_length=2048` + batch 2×4 ≈ **5.7 s/step**（200 步 ≈ 19 分钟；此时 Unsloth 已自动开启问题 3 那条梯度卸载）。明显慢于这个量级，再往下查。
 
 - **先查精度档**：T4 上必须真正走 **fp16**。若精度开关是按 `torch.cuda.is_bf16_supported()` 写的，T4 会被误判成"支持 bf16"，实际是 fp32 模拟、**慢数倍**（见 2.4）
 - 确认 `use_gradient_checkpointing="unsloth"`（这是 Unsloth 自带的优化内核，**不需要手动安装 Flash Attention 2**——官方不建议在 Windows 上手动编译 FA2）
