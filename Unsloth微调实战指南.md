@@ -145,7 +145,7 @@ xformers = 'xformers==' + {'2.10':'0.0.34','2.9':'0.0.33.post1','2.8':'0.0.32.po
 
 **步骤 5：确定工作目录（成果往哪放）**
 
-- **Kaggle**：直接写 `/kaggle/working/`，**不需要 mount**——会话结束时它自动保存为 Output，下次新建 Notebook 可把它挂成输入数据。
+- **Kaggle**：直接写 `/kaggle/working/`，**不需要 mount**——会话结束时它自动保存为 Output，下次新建 Notebook 可把它挂成输入数据。（⚠️ 一个例外：导出 GGUF 时 Unsloth 可能因空间不足**自动改写到 `/tmp`**，那不存 Output，详见 6.2 / 6.3 第一步。）
 - **Colab**：先挂载 Google Drive（见下面的代码块）。
 
 ```python
@@ -631,24 +631,94 @@ model.save_pretrained_gguf(
 )
 ```
 
-产物：`./qwen2.5-gguf/unsloth.Q4_K_M.gguf`
+产物文件名**以模型名为前缀**：`./qwen2.5-gguf/Qwen2.5-7B.Q4_K_M.gguf`（**不是** `unsloth.Q4_K_M.gguf`——新版 Unsloth 用模型名做前缀，下载和 Modelfile 里都按实际文件名写）。
 
 **量化方式对照（7B 模型）**：
 
 | 量化方式 | 体积 | 说明 |
 |----------|------|------|
-| `q4_k_m` | ≈4.4 GB | **本项目选用**（Unsloth 默认），质量与体积平衡 |
+| `q4_k_m` | ≈4.7 GB | **本项目选用**（Unsloth 默认），质量与体积平衡 |
 | `q5_k_m` | ≈5.4 GB | 质量更高 |
 | `q6_k` | ≈6.6 GB | 较高质量 |
 | `q8_0` | ≈8 GB | 接近原精度 |
-| `q3_k_m` | ≈3.5 GB | 更省空间，质量有损（内存实在不够时的退路） |
+| `q3_k_m` | ≈3.5 GB | 更省空间，质量有损（磁盘实在不够时的退路） |
 
-> ⚠️ 导出时 Unsloth 会先把模型合并到 fp16 再量化，**这一步吃的是系统内存**（不是显存）。本文在 **Kaggle** 上导出——系统内存比 Colab 免费档宽裕，7B 用默认的 **`q4_k_m`** 通常能过。若仍报内存不足，再降到 **`q3_k_m`**（只改上面代码块那一行，本节体积数字按表里 `q3_k_m` 那列替换）。
-> 降档的代价要清楚：少 1 bit，输出质量会有可感知的下降（更易答偏、格式更易崩）。
+> 体积口径：上表按 `10³` 换算（`4.7 GB` = `4.36 GiB`）。Windows 资源管理器按 `2³⁰` 显示，你会看到 **"4.36 GB"**——是同一个文件，别以为下错了。
+
+> ⚠️ **真正的瓶颈是磁盘，不是内存。** 导出时同一个目录里要同时放三份东西：合并后的 **16-bit 权重（≈15GB）+ f16 GGUF（≈15GB）+ 最终的 q4（≈4.7GB）**，峰值 **30GB 以上**。而 Kaggle 的 `/kaggle/working/` **只有约 18.7GB 空闲**，装不下 → Unsloth 会**自动把产物改落到 `/tmp`**（Kaggle 的 `/tmp` 有 1TB 空间）并打印：
+> `Unsloth: Kaggle's working directory only has 18.7GB free, so the GGUF export goes to /tmp/unsloth_saves/... instead`
+> **`/tmp` 是临时空间，会话一停就回收、不会存成 Output**。所以导出成功后**必须先把它搬回 `/kaggle/working/`**（见 6.3 第一步），否则关掉会话成果就没了。这一步与量化档位无关——**降到 `q3_k_m` 也解决不了**（大头是那两份 15GB 中间产物）。
+> 若 `q4_k_m` 本身报错，再降到 **`q3_k_m`**（只改上面代码块那一行）。
+
+> 💡 导出时 Unsloth 会自动装 **预编译版 llama.cpp**（`skipping compilation`，省掉约 3 分钟编译），并在转换完成后**自动清理** f16 中间件，最终目录里只剩 q4 那一个文件。
 
 ### 6.3 下载到本地
 
-把上一步生成的 `.gguf`（约 4.4GB）从云端下载到本地。建议先在云端落盘（Kaggle 写 `/kaggle/working/`，会话结束自动存为 Output；Colab 则挂 Google Drive）再下载，避免会话中断导致文件丢失。
+**先纠正一个前提**：Kaggle 上 Unsloth 会把 GGUF 落到 `/tmp`，而 **`/tmp` 不是 Output、会话结束即回收**（原因见 6.2）。所以下载分两步：**先搬进 `/kaggle/working/` 钉成 Output，再想办法弄到本地。**
+
+```python
+# Kaggle：把 /tmp 里的最终产物搬回 Output（路径以 6.2 的实际输出为准）
+!mkdir -p /kaggle/working/gguf
+!cp /tmp/unsloth_saves/qwen2.5-gguf_gguf/Qwen2.5-7B.Q4_K_M.gguf /kaggle/working/gguf/
+!ls -lh /kaggle/working/gguf/ && df -h /kaggle/working
+```
+
+然后右上角 **Save Version → Quick Save**（⚠️ **别选 "Save & Run All"**，那会把整个 notebook 从头重跑一遍，白等半小时），跑完 Output 里就有这个文件了——**此后会话随便关**。
+
+> Colab 则相反：它的磁盘没有这个限制，正常写盘后挂到 Google Drive 长期保存即可。
+
+#### 三种下载方式
+
+| 方式 | 可靠性 | 说明 |
+|---|---|---|
+| **HuggingFace 中转** | ★★★ **推荐** | 一次投入，链接**永久不过期**、可续传，以后反复拉模型都能用 |
+| 浏览器 / `FileLink` | ★★ | 偶尔下一次可以，但慢、易断，断了只能从头来 |
+| 外部下载器（FDM / IDM / aria2） | ⚠️ 对 Kaggle 直链常失败 | Kaggle 链接依赖会话登录态，外部工具通常拿不到；**若报 403 / 401 就是这个原因**。想用多线程续传，请改用下面的 **HF 永久链接** |
+
+#### HuggingFace 中转完整流程
+
+**① 云端上传**（把**已有**的 GGUF 传上去，**不重新导出**）
+
+前提：HF 账号 + 一个 **`Write` 类型**的 access token（**`Read` 类型上传会 403**，这是第一大坑）。
+
+```python
+!pip install -q -U huggingface_hub
+
+from huggingface_hub import login, HfApi
+
+login()   # 设备授权：浏览器打开 https://hf.co/oauth/device 并输入提示的验证码
+
+api = HfApi()
+api.create_repo("your-username/qwen2.5-7b-gguf", repo_type="model", exist_ok=True)
+api.upload_file(
+    path_or_fileobj="/kaggle/working/gguf/Qwen2.5-7B.Q4_K_M.gguf",
+    path_in_repo="Qwen2.5-7B.Q4_K_M.gguf",
+    repo_id="your-username/qwen2.5-7b-gguf",
+)
+```
+
+> ⚠️ **别用 `model.push_to_hub_gguf()`**：它会把整个导出（合并 16-bit → 转 f16 → 转 q4）**重跑一遍**，白等 16 分钟。上面用 `upload_file` 直接传已生成的文件（实测 4.68GB 上传约 1 分钟）。
+> ⚠️ `pip install -U huggingface_hub` 可能把 hub 升到 2.x，与镜像自带的 transformers / datasets 报依赖冲突警告——**纯上传不受影响**，但这个会话别再用来跑训练/推理。
+> 💡 纯上传**不需要 GPU、不需要 Unsloth**：新建 Notebook 时 Accelerator 选 `None`，用 Add Input 把 Output 挂进来（路径变成 `/kaggle/input/<名称>/gguf/...`，用 `!find /kaggle/input -name "*.gguf"` 查确切路径）。
+
+**② 本地下载**
+
+```bash
+pip install -U "huggingface_hub[hf_transfer]"
+
+# PowerShell: $env:HF_ENDPOINT="https://hf-mirror.com"
+#             $env:HF_HUB_ENABLE_HF_TRANSFER="1"    （CMD 用 set HF_ENDPOINT=...）
+hf download your-username/qwen2.5-7b-gguf --local-dir D:/models
+# 旧版命令：huggingface-cli download（参数相同）
+```
+
+**断了就重跑同一条命令**，会跳过已下好的部分接着下。
+
+> **也可以喂给外部下载器**（多线程更猛），但要用 HF 的链接而不是 Kaggle 的：
+> `https://hf-mirror.com/your-username/qwen2.5-7b-gguf/resolve/main/Qwen2.5-7B.Q4_K_M.gguf`
+> 这是**永久链接、不过期**。前提：仓库要**公开**；私有仓库需先配 token。
+
+**③ 核对**：本地文件应约 **4.68 GB**（= **4.36 GiB**，Windows 资源管理器按 2³⁰ 显示，看到 "4.36 GB" 是对的）。
 
 ### 6.4 本地使用 Ollama 运行
 
@@ -656,13 +726,19 @@ model.save_pretrained_gguf(
 
 ```bash
 cat > Modelfile << 'EOF'
-FROM D:/models/unsloth.Q4_K_M.gguf
+FROM D:/models/Qwen2.5-7B.Q4_K_M.gguf
 
+TEMPLATE """### Instruction:
+{{ .Prompt }}
+
+### Response:
+"""
+
+PARAMETER stop "### Instruction:"
+PARAMETER stop "### Response:"
 PARAMETER temperature 0.7
 PARAMETER top_p 0.9
 PARAMETER num_ctx 2048
-
-SYSTEM "你是一个专业的助手，能够准确回答各种问题。"
 EOF
 
 # 创建 Ollama 模型
@@ -672,8 +748,16 @@ ollama create qwen2.5-finetuned -f Modelfile
 ollama run qwen2.5-finetuned
 ```
 
+> ⚠️ **`TEMPLATE` 和 `STOP` 都不能省，这是最容易翻车的地方。** 训练用的是 **Alpaca** 格式（`### Instruction:` / `### Response:`，见 3.2），而 GGUF 里**内嵌的默认模板是 Qwen2.5 自带的 ChatML**（`<|im_start|>`）。不在 Modelfile 里显式指定 `TEMPLATE`，Ollama 就会拿 ChatML 去问一个只见过 Alpaca 的模型——**训练/推理格式对不上，输出会答非所问**。
+> `STOP` 那两条也必须加：Alpaca 格式的模型不加停止词会**自己往下编下一轮 `### Instruction:`**。
+> **不要加 `SYSTEM`**：训练数据里没有 system 段，硬塞一句中文系统提示属于训练分布外。
+>
+> 💡 还有一个相关现象：Unsloth 导出时可能打印 `No Ollama template mapping found for model 'unsloth/Qwen2.5-7B'. Skipping Ollama Modelfile`——它**不会**自动生成 Modelfile。这不是错误，用上面这份手写的即可（base 模型的映射表里没有 Qwen2.5-7B 条目，所以它跳过）。
+
+验证模板是否生效：**英文**提问（训练数据 `yahma/alpaca-cleaned` 是英文，中文属分布外），并留意输出**不会**自行续写下一轮 `### Instruction:`——出现续写就说明 `STOP` 没生效。
+
 > 💡 **省空间要点**：`ollama create` 会把 GGUF **复制**进 Ollama 自己的模型库（Windows 下在 `C:\Users\<用户名>\.ollama\models`），不是引用原文件。
-> 所以刚导入完时本地会有**两份**（合计约 9GB）。**导入成功后，原始的那个 `.gguf` 就可以删掉**，最终只占约 4.4GB。
+> 所以刚导入完时本地会有**两份**（合计约 9.4GB）。**导入成功后，原始的那个 `.gguf` 就可以删掉**，最终只占约 4.7GB。
 
 ### 6.5 云端 ↔ 本地分工一览
 
@@ -681,7 +765,8 @@ ollama run qwen2.5-finetuned
 |------|--------|----------|
 | 环境准备 / 训练 / 调参 | 云端（本文用 Kaggle） | 免费 GPU 额度 |
 | 导出 adapter / GGUF | 云端 | Unsloth（**不需要 Ollama**） |
-| 下载 GGUF | 本地 | 约 4.4GB 磁盘空间 |
+| 从 `/tmp` 搬回 Output（Kaggle 特有） | 云端 | 见 6.3 第一步 |
+| 下载 GGUF | 本地 | 约 4.7GB 磁盘空间 |
 | 加载并对话 | 本地 | 已安装的 Ollama |
 
 ---
@@ -789,8 +874,8 @@ ollama run qwen2.5-finetuned
 - [ ] 数据就绪（默认自动下载 `yahma/alpaca-cleaned`，**无需自备**；或换成 Alpaca / ShareGPT 格式的自己的数据）
 - [ ] 完成 Qwen2.5-7B 的 QLoRA 微调，产出 LoRA adapter
 - [ ] 记录每次实验的参数与 loss
-- [ ] 导出 GGUF（q4_k_m）
-- [ ] 下载到本地，用 Ollama 跑起来
+- [ ] 导出 GGUF（q4_k_m；核对产物路径——若落在 `/tmp` 需先搬回 `/kaggle/working/` 再 Save Version，见 6.2 / 6.3）
+- [ ] 下载到本地，用 Ollama 跑起来（Modelfile 必带 Alpaca 的 `TEMPLATE` + 两条 `STOP`，见 6.4）
 - [ ] 对比 Unsloth 与原生 HuggingFace 的速度 / 显存差异
 - [ ] 为下一步 LlamaFactory 学习做好准备
 
