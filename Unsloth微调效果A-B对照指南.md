@@ -39,12 +39,30 @@
 
 ## 三、跑法（Kaggle）
 
-新建 Notebook（Accelerator 选 `GPU T4 ×2`，且 **首格必须是 `%env CUDA_VISIBLE_DEVICES=0`**，见指南 2.1），然后：
+新建 Notebook（Accelerator 选 `GPU T4 ×2`，且 **首格必须是 `%env CUDA_VISIBLE_DEVICES=0`**，见指南 2.1），然后三步：
 
-1. **贴指南 2.1 步骤 4 的安装格**（与训练时同一套，保证 Unsloth / transformers 版本一致）
-2. **Add Input 挂上训好的 Output**，路径形如
-   `/kaggle/input/<你的Output名>/qwen2.5-finetuned-final`
-3. 跑下面的主对照代码
+**① 装环境** —— 贴下面这格（**与训练时同一套**，保证 Unsloth / transformers 版本一致）：
+
+```python
+import re
+import torch
+
+v = re.match(r'[\d]{1,}\.[\d]{1,}', str(torch.__version__)).group(0)
+xformers = 'xformers==' + {'2.10':'0.0.34','2.9':'0.0.33.post1','2.8':'0.0.32.post2'}.get(v, "0.0.34")
+
+!pip install sentencepiece protobuf "datasets==4.3.0" "huggingface_hub>=0.34.0" hf_transfer
+!pip install --no-deps unsloth_zoo bitsandbytes accelerate {xformers} peft trl triton unsloth
+!pip install --no-deps --upgrade "torchao>=0.16.0"
+!pip install transformers==4.56.2
+!pip install --no-deps trl==0.22.2
+```
+
+> 与指南 2.1 步骤 4 的安装格**逐字一致**（三份文档共用同一格；改动时要同步，见文末）。
+
+**② 挂 adapter** —— **Add Input 挂上训好的 Output**，路径形如
+`/kaggle/input/<你的Output名>/qwen2.5-finetuned-final`
+
+**③ 跑主对照** —— 贴下面这段：
 
 ```python
 import json, torch
@@ -233,3 +251,9 @@ chat_ft   = [run_chat(t) for t in MULTI_TURN]
 - `ab_raw.json`：两组原始输出（**别只留截图**，截图无法复查）
 - 第五节的**逐题表 + 汇总表**
 - 一段结论：**哪类题变好了 / 哪类变差了 / 下一步动什么**
+
+---
+
+## 附：安装格的唯一性约定
+
+第三节 ① 的安装格与《Unsloth微调实战指南.md》2.1 步骤 4、《Unsloth与原生HuggingFace对照.md》4.2 的安装格**逐字相同**——共 **3 份拷贝**。它们代表同一个被钉死的版本组合（`transformers==4.56.2` / `trl==0.22.2` 等），**改一处必须同改三处**，否则会出现"训练用 A 版本、对照跑 B 版本"这类隐蔽的口径错位。
