@@ -65,7 +65,7 @@ xformers = 'xformers==' + {'2.10':'0.0.34','2.9':'0.0.33.post1','2.8':'0.0.32.po
 **② 挂 adapter** —— **Add Input 挂上训好的 Output**，路径形如
 `/kaggle/input/<你的Output名>/qwen2.5-finetuned-final`
 
-**③ 跑主对照** —— 贴下面这段：
+**③ 跑对照（一次跑完单轮 + 多轮）** —— 贴下面这段。**顺序是关键**：base 组（单轮 + 多轮）全部排在 `load_adapter` 之前，之后只挂一次、不再需要"关"：
 
 ```python
 import json, torch
@@ -126,51 +126,14 @@ def run(prompts):
     return outs
 
 
-base_out = run(PROMPTS)          # ① 对照组：不挂 adapter
-model.load_adapter(ADAPTER)      # 同一进程内挂上，无需重新加载模型
-ft_out   = run(PROMPTS)          # ② 实验组：挂了 adapter
-
-json.dump({"prompts": PROMPTS, "base": base_out, "ft": ft_out},
-          open("/kaggle/working/ab_raw.json", "w"), ensure_ascii=False, indent=2)
-print("完成 → /kaggle/working/ab_raw.json")
-```
-
-> ⚠️ **两个细节别漏**：
-> - **`do_sample=False`**（贪心解码）——采样会把随机性混进两组差异，让结论不可复现
-> - **`max_new_tokens` 两边一致**——否则长度差会污染判断
->
-> 若 `load_adapter` 报错，退路是重新 `from_pretrained` 后再挂——但**两组的解码参数必须完全相同**。
-
-### 自检（先确认这次跑得有意义）
-
-**最怕两组输出一模一样**——那说明 adapter 没真正生效，后面的盲评等于在比两个相同的模型。跑完主对照先跑这一格：
-
-```python
-import json
-d = json.load(open("/kaggle/working/ab_raw.json"))
-P, B, F = d["prompts"], d["base"], d["ft"]
-print("题数", len(P), "| base", len(B), "| ft", len(F))
-print("两组逐字相同的题数:", sum(1 for b, f in zip(B, F) if b == f), "/", len(P))
-print("空输出 base", sum(1 for x in B if not x.strip()), "| ft", sum(1 for x in F if not x.strip()))
-for n, arr in [("base", B), ("ft", F)]:
-    L = sum(len(x.split()) for x in arr) / len(arr)
-    print(f"{n}: 平均 {L:.0f} 词 | 自续 '### Instruction:' {sum(x.count('### Instruction:') for x in arr)} 次")
-```
-
-**判据**：题数应为 `24 / 24 / 24`；**「逐字相同」应远小于 24**（通常能差一半以上）；空输出为 `0`。
-若「逐字相同 = 24」→ 回第三节检查 `load_adapter` 是否真的执行了（adapter 未生效时两组必然一致）。
-
-### 多轮探针（单独跑，因为要保留上文）
-
-Alpaca 格式本身没有多轮结构，所以这里**最可能暴露格式崩坏**，值得单独测：
-
-```python
+# 多轮探针：Alpaca 没有多轮结构，这里最容易暴露格式崩坏
 MULTI_TURN = [
     ["What is LoRA?",
      "How does it save memory compared to full fine-tuning?"],
     ["介绍一下杭州这个城市。",
      "它有哪些值得去的景点？"],
 ]
+
 
 @torch.no_grad()
 def run_chat(turns):
@@ -185,13 +148,55 @@ def run_chat(turns):
         text += reply + "\n\n"
     return text
 
-# ⚠️ 跑到这里时，adapter 已在主对照末尾挂上了：
-#    「base 组」必须先用 disable_adapter() 关掉，才是真 base；
-#    且不要再 load_adapter（否则报 "Adapter 'default' already exists"）。
-with model.disable_adapter():
-    chat_base = [run_chat(t) for t in MULTI_TURN]
-chat_ft = [run_chat(t) for t in MULTI_TURN]
+
+# ---- base 组：全部跑在挂 adapter 之前（唯一变量才是 adapter）----
+base_out  = run(PROMPTS)                          # 单轮 base
+chat_base = [run_chat(t) for t in MULTI_TURN]     # 多轮 base
+
+model.load_adapter(ADAPTER)                       # 只挂这一次，之后再没有"关"的需求
+
+# ---- ft 组 ----
+ft_out  = run(PROMPTS)                            # 单轮 ft
+chat_ft = [run_chat(t) for t in MULTI_TURN]       # 多轮 ft
+
+json.dump({"prompts": PROMPTS, "base": base_out, "ft": ft_out,
+           "multi_base": chat_base, "multi_ft": chat_ft},
+          open("/kaggle/working/ab_raw.json", "w"), ensure_ascii=False, indent=2)
+print("完成 → /kaggle/working/ab_raw.json")
 ```
+
+> ⚠️ **三个细节别漏**：
+> - **顺序**：`base` 组必须排在 `model.load_adapter()` **之前**——Unsloth 这条路径返回的是模型本体（`Qwen2ForCausalLM`）、**没有 `disable_adapter()`**，adapter 一旦挂上，在进程内就没有"临时关掉"的开关（官方 issue #2688 / #36 同款现象）。这是把多轮并进本格的原因。
+> - **`do_sample=False`**（贪心解码）——采样会把随机性混进两组差异，让结论不可复现。
+> - **`max_new_tokens` 两边一致**——否则长度差会污染判断。
+
+### 自检（先确认这次跑得有意义）
+
+**最怕两组输出一模一样**——那说明 adapter 没真正生效，后面的盲评等于在比两个相同的模型。跑完 ③ 先跑这一格：
+
+```python
+import json
+d = json.load(open("/kaggle/working/ab_raw.json"))
+P, B, F = d["prompts"], d["base"], d["ft"]
+MB, MF = d["multi_base"], d["multi_ft"]
+print("单轮题数", len(P), "| base", len(B), "| ft", len(F), "| 多轮", len(MB), "/", len(MF))
+print("单轮·两组逐字相同的题数:", sum(1 for b, f in zip(B, F) if b == f), "/", len(P))
+print("空输出 base", sum(1 for x in B if not x.strip()), "| ft", sum(1 for x in F if not x.strip()))
+for n, arr in [("base", B), ("ft", F)]:
+    L = sum(len(x.split()) for x in arr) / len(arr)
+    print(f"{n}: 平均 {L:.0f} 词 | 自续 '### Instruction:' {sum(x.count('### Instruction:') for x in arr)} 次")
+for n, arr in [("multi_base", MB), ("multi_ft", MF)]:
+    print(f"{n}: 自续 '### Instruction:' {sum(x.count('### Instruction:') for x in arr)} 次")
+```
+
+**判据**：单轮题数应为 `24 / 24 / 24`、多轮 `2 / 2`；**「逐字相同」应远小于 24**（通常能差一半以上）；空输出为 `0`。
+若「逐字相同 = 24」→ 回第三节检查 `load_adapter` 是否真的执行了（adapter 未生效时两组必然一致）。
+
+### 为什么测多轮（代码已并入 ③）
+
+Alpaca 格式本身**没有多轮结构**，所以这里**最可能暴露格式崩坏**——模型可能忘记上一轮、或干脆自己续写下一轮 `### Instruction:`。2 组多轮对话（各 2 轮）的原始输出在 `ab_raw.json` 的 **`multi_base` / `multi_ft`**（采集代码见 ③ 的 `run_chat`）。
+
+**判据**：`### Instruction:` 出现次数应为 **0**（自续即格式崩）；再对比两组是否丢上下文、答非所问。
 
 ---
 
@@ -296,8 +301,8 @@ print("（第 2 轮：把每题 [A]/[B] 对调再判一遍，消除位置偏差�
 
 ## 八、产出物
 
-- `ab_raw.json`：两组原始输出（**别只留截图**，截图无法复查）
-- `ab_blind.json`：盲评对照（含 `A_is_ft` 答案键），便于复查评分过程
+- `ab_raw.json`：全部原始输出——单轮 `base` / `ft` + 多轮 `multi_base` / `multi_ft`（**别只留截图**，截图无法复查）
+- `ab_blind.json`：单轮盲评对照（含 `A_is_ft` 答案键），便于复查评分过程
 - 第五节的**逐题表 + 汇总表**
 - 一段结论：**哪类题变好了 / 哪类变差了 / 下一步动什么**
 
