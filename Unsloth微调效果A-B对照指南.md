@@ -141,6 +141,25 @@ print("完成 → /kaggle/working/ab_raw.json")
 >
 > 若 `load_adapter` 报错，退路是重新 `from_pretrained` 后再挂——但**两组的解码参数必须完全相同**。
 
+### 自检（先确认这次跑得有意义）
+
+**最怕两组输出一模一样**——那说明 adapter 没真正生效，后面的盲评等于在比两个相同的模型。跑完主对照先跑这一格：
+
+```python
+import json
+d = json.load(open("/kaggle/working/ab_raw.json"))
+P, B, F = d["prompts"], d["base"], d["ft"]
+print("题数", len(P), "| base", len(B), "| ft", len(F))
+print("两组逐字相同的题数:", sum(1 for b, f in zip(B, F) if b == f), "/", len(P))
+print("空输出 base", sum(1 for x in B if not x.strip()), "| ft", sum(1 for x in F if not x.strip()))
+for n, arr in [("base", B), ("ft", F)]:
+    L = sum(len(x.split()) for x in arr) / len(arr)
+    print(f"{n}: 平均 {L:.0f} 词 | 自续 '### Instruction:' {sum(x.count('### Instruction:') for x in arr)} 次")
+```
+
+**判据**：题数应为 `24 / 24 / 24`；**「逐字相同」应远小于 24**（通常能差一半以上）；空输出为 `0`。
+若「逐字相同 = 24」→ 回第三节检查 `load_adapter` 是否真的执行了（adapter 未生效时两组必然一致）。
+
 ### 多轮探针（单独跑，因为要保留上文）
 
 Alpaca 格式本身没有多轮结构，所以这里**最可能暴露格式崩坏**，值得单独测：
@@ -166,10 +185,12 @@ def run_chat(turns):
         text += reply + "\n\n"
     return text
 
-# 两组各跑一遍（注意：挂/不挂的切换与上面同一进程内完成）
-chat_base = [run_chat(t) for t in MULTI_TURN]
-model.load_adapter(ADAPTER)
-chat_ft   = [run_chat(t) for t in MULTI_TURN]
+# ⚠️ 跑到这里时，adapter 已在主对照末尾挂上了：
+#    「base 组」必须先用 disable_adapter() 关掉，才是真 base；
+#    且不要再 load_adapter（否则报 "Adapter 'default' already exists"）。
+with model.disable_adapter():
+    chat_base = [run_chat(t) for t in MULTI_TURN]
+chat_ft = [run_chat(t) for t in MULTI_TURN]
 ```
 
 ---
@@ -190,6 +211,30 @@ chat_ft   = [run_chat(t) for t in MULTI_TURN]
 | 语言串台 | 中文题用英文回答、或反向的次数 |
 
 > 最省事：把打乱后的对照表贴给 DeepSeek 当裁判 —— 就是 `llm-lora-qlora-finetuning-guide/微调评测方法A/eval_judge.py` 的思路。
+
+### 盲评对照怎么生成（直接粘）
+
+固定随机种子 → 可复现；**答案键存在 json 里**，评完再解盲：
+
+```python
+import json, random
+d = json.load(open("/kaggle/working/ab_raw.json"))
+P, B, F = d["prompts"], d["base"], d["ft"]
+random.seed(0)                                  # 固定种子 → 可复现
+blind = []
+for i, (p, b, f) in enumerate(zip(P, B, F), 1):
+    a_is_ft = random.random() < 0.5             # 随机决定 ft 放到 A 还是 B
+    A, Bs = (f, b) if a_is_ft else (b, f)
+    blind.append({"id": i, "prompt": p, "A": A, "B": Bs, "A_is_ft": a_is_ft})
+json.dump(blind, open("/kaggle/working/ab_blind.json", "w"), ensure_ascii=False, indent=2)
+
+for r in blind:
+    print(f"### #{r['id']} {r['prompt']}\n[A]\n{r['A']}\n[B]\n{r['B']}\n")
+print("（第 2 轮：把每题 [A]/[B] 对调再判一遍，消除位置偏差）")
+```
+
+把打印出来的内容**整段贴给裁判模型**（DeepSeek 即可），要求逐题输出 `A更好 / B更好 / 平` + 0-5 分。
+`ab_blind.json` 里的 `A_is_ft` 是**答案键**——评分完成后再用它解盲、把分数归到 base / ft 两边。
 
 ---
 
@@ -252,6 +297,7 @@ chat_ft   = [run_chat(t) for t in MULTI_TURN]
 ## 八、产出物
 
 - `ab_raw.json`：两组原始输出（**别只留截图**，截图无法复查）
+- `ab_blind.json`：盲评对照（含 `A_is_ft` 答案键），便于复查评分过程
 - 第五节的**逐题表 + 汇总表**
 - 一段结论：**哪类题变好了 / 哪类变差了 / 下一步动什么**
 
