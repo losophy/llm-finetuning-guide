@@ -868,16 +868,18 @@ ollama run qwen2.5-finetuned
 
 ## 完成检查清单（验收用，不是待办）
 
-- [ ] 跑通至少 1 个官方 Notebook（如 Llama 3.1 8B Alpaca）
-- [ ] 云端环境可用（Kaggle：Unsloth 装好、Internet 已打开、**首格已执行 `%env CUDA_VISIBLE_DEVICES=0`**）
-- [ ] 精度档正确（2.4 打印 **BF16 原生支持 = `False`**，训练实际走 fp16；理由见 2.4 的 ⚠️ 说明）
-- [ ] 数据就绪（默认自动下载 `yahma/alpaca-cleaned`，**无需自备**；或换成 Alpaca / ShareGPT 格式的自己的数据）
-- [ ] 完成 Qwen2.5-7B 的 QLoRA 微调，产出 LoRA adapter
-- [ ] 记录每次实验的参数与 loss
-- [ ] 导出 GGUF（q4_k_m；核对产物路径——若落在 `/tmp` 需先搬回 `/kaggle/working/` 再 Save Version，见 6.2 / 6.3）
-- [ ] 下载到本地，用 Ollama 跑起来（Modelfile 必带 Alpaca 的 `TEMPLATE` + 两条 `STOP`，见 6.4）
-- [ ] 对比 Unsloth 与原生 HuggingFace 的速度 / 显存差异
-- [ ] 为下一步 LlamaFactory 学习做好准备
+> **验收记录**：2026-10-05 逐项核对，**10/10 全部达成**——阶段二（用 Unsloth 跑通 Qwen2.5 微调）验收通过。
+
+- [x] 跑通至少 1 个官方 Notebook（如 Llama 3.1 8B Alpaca）
+- [x] 云端环境可用（Kaggle：Unsloth 装好、Internet 已打开、**首格已执行 `%env CUDA_VISIBLE_DEVICES=0`**）
+- [x] 精度档正确（2.4 打印 **BF16 原生支持 = `False`**，训练实际走 fp16；理由见 2.4 的 ⚠️ 说明）
+- [x] 数据就绪（默认自动下载 `yahma/alpaca-cleaned`，**无需自备**；或换成 Alpaca / ShareGPT 格式的自己的数据）
+- [x] 完成 Qwen2.5-7B 的 QLoRA 微调，产出 LoRA adapter
+- [x] 记录每次实验的参数与 loss
+- [x] 导出 GGUF（q4_k_m；核对产物路径——若落在 `/tmp` 需先搬回 `/kaggle/working/` 再 Save Version，见 6.2 / 6.3）
+- [x] 下载到本地，用 Ollama 跑起来（Modelfile 必带 Alpaca 的 `TEMPLATE` + 两条 `STOP`，见 6.4）
+- [x] 对比 Unsloth 与原生 HuggingFace 的速度 / 显存差异
+- [x] 为下一步 LlamaFactory 学习做好准备
 
 ---
 
