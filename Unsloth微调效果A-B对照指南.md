@@ -39,7 +39,10 @@
 
 ## 三、跑法（Kaggle）
 
-新建 Notebook（Accelerator 选 `GPU T4 ×2`，且 **首格必须是 `%env CUDA_VISIBLE_DEVICES=0`**，见指南 2.1），然后三步：
+新建 Notebook（Accelerator 选 `GPU T4 ×2`），然后三步。
+
+> ⚠️ **首格必须是 `%env CUDA_VISIBLE_DEVICES=0`**——Kaggle 只给 `GPU T4 ×2`、**没有单卡档位**，不限的话 Unsloth 会把模型切开跨两张卡跑（张量并行）：**不加速、还白吃一份时长额度**（实测双卡 300 步与单卡单步耗时基本持平，跨卡通信把第二张卡的收益吃光了）。
+> **时序是硬要求**：这一行必须**早于任何 `import torch` / 任何 CUDA 调用**，晚一步就无效、只能重启会话。判据：加载模型时横幅 `Num GPUs = 1`，且**不出现** `output head -> cuda:1`。
 
 **① 装环境** —— 贴下面这格（**与训练时同一套**，保证 Unsloth / transformers 版本一致）：
 
