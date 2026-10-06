@@ -201,6 +201,31 @@ else:
 **判据**：单轮题数应为 `24 / 24 / 24`、多轮 `2 / 2`；**「逐字相同」应远小于 24**（通常能差一半以上）；空输出为 `0`。
 若「逐字相同 = 24」→ 回第三节检查 `load_adapter` 是否真的执行了（adapter 未生效时两组必然一致）。
 
+### 分类读数（长度差是谁贡献的）
+
+自检只看总数，这一格把三类拆开——**如果涨幅是中文题贡献的，那多半是"用英文绕圈"的退化信号，不是变好**：
+
+```python
+cats = ["英文"] * 8 + ["中文"] * 8 + ["数学/知识"] * 8      # 顺序同第三节 PROMPTS
+
+for name, arr in [("base", B), ("ft", F)]:
+    line = [f"{c} {sum(len(arr[i].split()) for i in range(24) if cats[i] == c) / 8:.0f} 词"
+            for c in ["英文", "中文", "数学/知识"]]
+    print(f"{name:4s} " + " | ".join(line))
+
+
+def ascii_heavy(s):        # 判断中文题是否用英文作答
+    letters = [ch for ch in s if ch.isalpha()]
+    return bool(letters) and sum(ch.isascii() for ch in letters) / len(letters) > 0.8
+
+
+for name, arr in [("base", B), ("ft", F)]:
+    cn = arr[8:16]         # 题 9–16 = 中文退化探针
+    print(f"{name}: 中文题用英文作答 {sum(ascii_heavy(x) for x in cn)} / 8")
+```
+
+**怎么读**：三类都均匀变长 → 是通用的"Alpaca 风格"生效；只有中文（或只有数学）猛涨 → 去看那几题的实际输出，大概率是绕圈或串台。
+
 ### 为什么测多轮（代码已并入 ③）
 
 Alpaca 格式本身**没有多轮结构**，所以这里**最可能暴露格式崩坏**——模型可能忘记上一轮、或干脆自己续写下一轮 `### Instruction:`。2 组多轮对话（各 2 轮）的原始输出在 `ab_raw.json` 的 **`multi_base` / `multi_ft`**（采集代码见 ③ 的 `run_chat`）。
@@ -247,8 +272,80 @@ for r in blind:
 print("（第 2 轮：把每题 [A]/[B] 对调再判一遍，消除位置偏差）")
 ```
 
-把打印出来的内容**整段贴给裁判模型**（DeepSeek 即可），要求逐题输出 `A更好 / B更好 / 平` + 0-5 分。
+把打印出来的内容**整段贴给裁判模型**（DeepSeek 即可）。
 `ab_blind.json` 里的 `A_is_ft` 是**答案键**——评分完成后再用它解盲、把分数归到 base / ft 两边。
+
+### 裁判提示词（连同上一格输出一起发给 DeepSeek）
+
+rubric 与你的 `llm-lora-qlora-finetuning-guide/微调评测方法A/eval_judge.py` 保持一致，两处口径不会打架：
+
+```
+你是严格的评测员。下面有 N 道题，每题两个匿名回答（A / B）。只输出 JSON，不要任何解释。
+
+评分 rubric（0-5）：
+5 = 完全正确且满足指令的每一条硬约束（数量、一句话、字数、指定开头等）
+4 = 正确，基本满足约束，有小瑕疵
+3 = 方向对，部分正确或只满足部分约束
+2 = 有相关内容但明显错误，或忽略了主要约束
+1 = 严重跑题或近乎空白
+0 = 空、乱码、无关
+
+评分只看回答本身，不要因为篇幅长就给高分（啰嗦 ≠ 好）。
+
+整体输出：{"items": [{"id": <题号>, "score_A": <0-5>, "score_B": <0-5>, "winner": "A"|"B"|"平", "comment": "<20 字内理由>"}, ...]}
+```
+
+**第 2 轮换位置**（消位置偏差）——把每题的 A/B 对调后再判一遍，**另存一份别覆盖**：
+
+```python
+import json
+b = json.load(open("/kaggle/working/ab_blind.json"))
+for r in b:
+    r["A"], r["B"] = r["B"], r["A"]
+json.dump(b, open("/kaggle/working/ab_blind_swapped.json", "w"), ensure_ascii=False, indent=2)
+for r in b:
+    print(f"### #{r['id']} {r['prompt']}\n[A]\n{r['A']}\n[B]\n{r['B']}\n")
+```
+
+> 两轮结论**不一致的题**单独看——那说明偏好不稳定，别硬下结论。
+
+### 解盲 + 汇总（裁判结果存盘后跑这一格）
+
+把裁判返回的 `{"items": [...]}` 存成 `/kaggle/working/ab_verdict.json`，这格**自动解盲并算出第五节的汇总表**：
+
+```python
+import json, statistics
+
+blind = {r["id"]: r for r in json.load(open("/kaggle/working/ab_blind.json"))}
+V = json.load(open("/kaggle/working/ab_verdict.json"))["items"]
+cats = ["英文"] * 8 + ["中文"] * 8 + ["数学/知识"] * 8      # 顺序同第三节 PROMPTS
+
+rows = []
+for v in V:
+    ft_is_a = blind[v["id"]]["A_is_ft"]                 # 答案键：ft 是不是被放成了 A
+    base_s = v["score_B"] if ft_is_a else v["score_A"]
+    ft_s   = v["score_A"] if ft_is_a else v["score_B"]
+    w = str(v.get("winner", "平")).strip()
+    win = "tie" if w in ("平", "tie", "") else \
+          ("ft" if (w.upper().startswith("A") == ft_is_a) else "base")
+    rows.append({"id": v["id"], "cat": cats[v["id"] - 1], "base": base_s, "ft": ft_s, "win": win})
+
+print(f"{'类别':<10}{'base均分':>9}{'ft均分':>9}{'ft胜':>6}{'base胜':>8}{'平':>5}")
+for c in ["英文", "中文", "数学/知识"]:
+    g = [r for r in rows if r["cat"] == c]
+    print(f"{c:<10}{statistics.mean(r['base'] for r in g):>9.2f}"
+          f"{statistics.mean(r['ft'] for r in g):>9.2f}"
+          f"{sum(r['win'] == 'ft' for r in g):>6}"
+          f"{sum(r['win'] == 'base' for r in g):>8}"
+          f"{sum(r['win'] == 'tie' for r in g):>5}")
+
+d = json.load(open("/kaggle/working/ab_raw.json"))
+print("\n平均输出长度: base %.0f 词 | ft %.0f 词" % (
+    sum(len(x.split()) for x in d["base"]) / len(d["base"]),
+    sum(len(x.split()) for x in d["ft"]) / len(d["ft"])))
+```
+
+> **判据是相对差，不是绝对分**：ft 均分在**英文**类上 ≥ base、且在**中文/数学**类上掉幅 < 0.5 分，才算"生效且没伤到通用能力"。掉幅 ≥ 1 分 → 按第六节当"灾难性遗忘苗头"处理。
 
 ---
 
@@ -312,7 +409,9 @@ print("（第 2 轮：把每题 [A]/[B] 对调再判一遍，消除位置偏差�
 
 - `ab_raw.json`：全部原始输出——单轮 `base` / `ft` + 多轮 `multi_base` / `multi_ft`（**别只留截图**，截图无法复查）
 - `ab_blind.json`：单轮盲评对照（含 `A_is_ft` 答案键），便于复查评分过程
-- 第五节的**逐题表 + 汇总表**
+- `ab_blind_swapped.json`：第 2 轮换位置后的对照（与第 1 轮一起判"偏好稳不稳"）
+- `ab_verdict.json`：裁判返回的 `{"items": [...]}`（**原始评分记录**，解盲前不要手改）
+- 第五节的**逐题表 + 汇总表**（汇总表可由第四节的解盲格直接算出）
 - 一段结论：**哪类题变好了 / 哪类变差了 / 下一步动什么**
 
 ---
