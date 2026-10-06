@@ -178,15 +178,24 @@ print("完成 → /kaggle/working/ab_raw.json")
 import json
 d = json.load(open("/kaggle/working/ab_raw.json"))
 P, B, F = d["prompts"], d["base"], d["ft"]
-MB, MF = d["multi_base"], d["multi_ft"]
-print("单轮题数", len(P), "| base", len(B), "| ft", len(F), "| 多轮", len(MB), "/", len(MF))
+print("单轮题数", len(P), "| base", len(B), "| ft", len(F))
 print("单轮·两组逐字相同的题数:", sum(1 for b, f in zip(B, F) if b == f), "/", len(P))
 print("空输出 base", sum(1 for x in B if not x.strip()), "| ft", sum(1 for x in F if not x.strip()))
 for n, arr in [("base", B), ("ft", F)]:
     L = sum(len(x.split()) for x in arr) / len(arr)
     print(f"{n}: 平均 {L:.0f} 词 | 自续 '### Instruction:' {sum(x.count('### Instruction:') for x in arr)} 次")
-for n, arr in [("multi_base", MB), ("multi_ft", MF)]:
-    print(f"{n}: 自续 '### Instruction:' {sum(x.count('### Instruction:') for x in arr)} 次")
+
+# 多轮：③ 合并前的旧 json 只有 3 个键，缺失时跳过（单轮结论不受影响）
+if "multi_base" in d and "multi_ft" in d:
+    MB, MF = d["multi_base"], d["multi_ft"]
+    print("多轮", len(MB), "/", len(MF),
+          "| 逐字相同", sum(1 for a, b in zip(MB, MF) if a == b), "/", len(MB),
+          "| 自续 '### Instruction:'",
+          sum(x.count("### Instruction:") for x in MB), "/",
+          sum(x.count("### Instruction:") for x in MF))
+else:
+    print("多轮：本 json 无 multi_base / multi_ft（旧版产出，③ 合并前跑的）")
+    print("      → 单轮结论不受影响；要补多轮，重跑 ③ 整块即可（base 组会自动前置）")
 ```
 
 **判据**：单轮题数应为 `24 / 24 / 24`、多轮 `2 / 2`；**「逐字相同」应远小于 24**（通常能差一半以上）；空输出为 `0`。
