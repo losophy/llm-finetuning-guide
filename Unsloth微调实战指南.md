@@ -26,7 +26,7 @@
 | ----------- | ------- | ------------------------------------------- |
 | 一、云端平台与显存门槛 | 决策参考    | 开局扫一眼，确认平台与配置数字                             |
 | 二、云端环境准备    | 备查      | 仅当你自己写脚本（不用官方 Notebook）时才需要                 |
-| 三、数据集准备     | 知识 / 工具 | 默认会自动下载公开数据集、无需准备；要换自己的数据时，看 3.1 格式与 3.2 脚本 |
+| 三、数据集准备     | 知识 / 工具 | 默认会自动下载公开数据集、无需准备；**要补第 2/3 个 adapter 时看 3.5**（官方两条数据路线）；要换自己的数据时看 3.1 格式与 3.2 脚本 |
 | 四、微调实战      | **跟着做** | 第 1 步动手时                                    |
 | 五、参数调优与排错   | 备查      | 训练报错、显存不足、效果差时再翻                            |
 | 六、导出与部署     | **跟着做** | 第 2 步动手时                                    |
@@ -308,6 +308,21 @@ def prepare_datasets(source=None, test_size=0.2, seed=42):
 train_dataset, eval_dataset = prepare_datasets()
 ```
 
+#### ⚠️ 这套代码与官方 notebook 有 3 处差异
+
+官方 `nb/Qwen2.5_(7B)-Alpaca.ipynb` 的数据部分只有 6 行（`load_dataset` → `map` → 丢给 `SFTTrainer`）。上面的代码在这三处不同，**都是有意的**，但必须知道：
+
+| 项 | 官方 notebook | 本指南 | 为什么改 |
+|---|---|---|---|
+| **模板文本** | 开头带一句 `Below is an instruction that describes a task, paired with an input that provides further context. Write a response that appropriately completes the request.` | 只有 `### Instruction:` / `### Input:` / `### Response:` 三段（见 4.1 `format_prompt`） | 简版短、好读，且 Modelfile 的 `TEMPLATE` 能一行对齐（6.4）。**代价：本指南训出的权重不能和官方 notebook 训的混用**——模板不同就是两个分布 |
+| **验证集** | **没有**：只把 `train_dataset` 交给 `SFTTrainer`，全量 51,760 条一起训 | `train_test_split(0.2)` → 800 / 200 | 没有 val loss 就看不出过拟合；5.2 问题 1 那条「3 轮就回升」的实测证据就是这么来的 |
+| **数据量** | 全量约 51,760 条 | 前 1000 条（`MAX_SAMPLES`） | README「100 条精品」心法：先确认流程通、loss 正常，再加量 |
+
+**模板选哪一套不影响能不能跑通，只影响两件事**：① Modelfile 的 `TEMPLATE` 必须跟着选（6.4）；② **别把两种模板训出的 adapter 拿去做 A/B**——那就同时变了两个变量。
+
+> 官方原文核对入口：
+> - Qwen2.5 (7B) Alpaca：`nb/Qwen2.5_(7B)-Alpaca.ipynb`（GitHub `unslothai/notebooks`）
+> - 官方微调指南：<https://unsloth.ai/docs/get-started/fine-tuning-llms-guide>（**全文未涉及多语言/中文**，中文数据属社区做法，不是官方推荐）
 
 ### 3.3 使用 Unsloth Data Recipes（可选）
 
@@ -320,6 +335,115 @@ Unsloth 支持从 PDF/CSV/JSON 自动生成 QA 对，参考文档：<https://uns
 - [ ] 验证数据格式
 - [ ] 划分训练集/验证集（80/20）
 - [ ] 检查是否有前后矛盾的问答对
+
+### 3.5 第 2、3 个 adapter：官方只有两条数据路线
+
+README 阶段二要求「3 种不同数据集 → 3 个 adapter」。别自己拍脑袋选，**官方 notebook 本身就只有两类**，这就是最稳的两条路：
+
+| | **Alpaca（指令微调）** | **Conversational（对话微调）** |
+|---|---|---|
+| 官方 notebook | `Qwen2.5_(7B)-Alpaca.ipynb` | `Qwen2.5_Coder_(14B)-Conversational.ipynb`（同类还有 Llama3.2 / Phi-4 / CodeGemma 版） |
+| 数据 | `yahma/alpaca-cleaned`（`instruction`/`input`/`output`） | `mlabonne/FineTome-100k`（ShareGPT：`from`/`value`） |
+| 格式 | 固定模板字符串（手写 `### Instruction:`） | **模型自带 chat template**（Qwen 是 ChatML `<|im_start|>`） |
+| loss 算在哪 | **全序列**（instruction + input + response 全算） | **只算 assistant 回复**（`train_on_responses_only`，user 段置 `-100`） |
+| 基座 | **Base**（`unsloth/Qwen2.5-7B-bnb-4bit`） | **Instruct**（`unsloth/Qwen2.5-7B-Instruct-bnb-4bit`） |
+| 官方定位 | Base 模型走这条，**需要更多数据** | **推荐新手优先**，所需数据更少 |
+
+**两条路的差别不止"数据换了"，而是"模型学的东西换了"**：Alpaca 连格式一起学（它要把 `### Instruction:` 当文本生成出来）；Conversational 只学"回答怎么写"（格式由 chat template 保证，不进 loss）。这是 4.1 那套代码里看不到的一层。
+
+#### 第 2 个 adapter：Conversational 路线（官方代码）
+
+```python
+"""第 2 个 adapter：官方 Conversational（ShareGPT + chat template）路线"""
+
+import torch
+from datasets import load_dataset
+from unsloth import FastLanguageModel
+from unsloth.chat_templates import (get_chat_template, standardize_sharegpt,
+                                    train_on_responses_only)
+from trl import SFTConfig, SFTTrainer
+
+BASE = "unsloth/Qwen2.5-7B-Instruct-bnb-4bit"   # ← 与第 1 个不同：这条必须用 Instruct
+DATASET = "mlabonne/FineTome-100k"              # ← 官方 Conversational notebook 用的 ShareGPT 数据
+MAX_SAMPLES = 1000
+OUT_DIR, FINAL_DIR = "./qwen2.5-conv", "./qwen2.5-conv-final"
+
+model, tokenizer = FastLanguageModel.from_pretrained(
+    model_name=BASE, max_seq_length=2048, dtype=None, load_in_4bit=True)
+
+# ① 给 tokenizer 装上 qwen-2.5 的 chat template（ChatML）
+tokenizer = get_chat_template(tokenizer, chat_template="qwen-2.5")
+
+# ② ShareGPT 的 {"from"/"value"} → HuggingFace 的 {"role"/"content"}
+dataset = load_dataset(DATASET, split="train")
+dataset = standardize_sharegpt(dataset)
+if MAX_SAMPLES and len(dataset) > MAX_SAMPLES:
+    dataset = dataset.select(range(MAX_SAMPLES))
+
+
+# ③ 用 chat template 把整段对话渲染成一列 text（训练时必须是 False）
+def formatting_prompts_func(examples):
+    convos = examples["conversations"]
+    texts = [tokenizer.apply_chat_template(c, tokenize=False,
+                                           add_generation_prompt=False)
+             for c in convos]
+    return {"text": texts}
+
+
+dataset = dataset.map(formatting_prompts_func, batched=True)
+split = dataset.train_test_split(test_size=0.2, seed=42)
+train_ds, eval_ds = split["train"], split["test"]
+print(train_ds[0]["text"][:400])        # 先确认真的出现了 <|im_start|>user
+
+model = FastLanguageModel.get_peft_model(
+    model, r=16, lora_alpha=32, lora_dropout=0,
+    target_modules=["q_proj", "k_proj", "v_proj", "o_proj",
+                    "gate_proj", "up_proj", "down_proj"],
+    bias="none", use_gradient_checkpointing="unsloth")
+
+trainer = SFTTrainer(
+    model=model, processing_class=tokenizer,
+    train_dataset=train_ds, eval_dataset=eval_ds,
+    args=SFTConfig(
+        output_dir=OUT_DIR, dataset_text_field="text", max_length=2048,
+        per_device_train_batch_size=2, gradient_accumulation_steps=4,
+        num_train_epochs=2, learning_rate=2e-4,
+        fp16=torch.cuda.get_device_capability()[0] < 8,
+        bf16=torch.cuda.get_device_capability()[0] >= 8,
+        logging_steps=10, save_steps=100, optim="adamw_8bit",
+        warmup_steps=10, lr_scheduler_type="cosine",
+        eval_strategy="steps", eval_steps=100))
+
+# ④ 关键一步：只在 assistant 回复上算 loss
+trainer = train_on_responses_only(trainer)
+
+# 验证掩码生效：user 段应被替换成 -100（下面解码时显示成空格）
+space = tokenizer(" ", add_special_tokens=False).input_ids[0]
+print(tokenizer.decode([space if x == -100 else x
+                        for x in trainer.train_dataset[0]["labels"]]))
+
+trainer.train()
+trainer.save_model(FINAL_DIR)
+print("完成 →", FINAL_DIR)
+```
+
+三个容易踩的点：
+
+1. **`train_on_responses_only(trainer)` 不用传 `instruction_part` / `response_part`**。新版 Unsloth 会从 tokenizer 的 chat template 里自动反查两个分隔段；只有你自己写了非标准模板时才需要显式传（Qwen ChatML 对应 `<|im_start|>user\n` / `<|im_start|>assistant\n`）。
+2. **它必须放在 `SFTTrainer(...)` 之后、`trainer.train()` 之前**。放前面没有 `trainer` 可传。
+3. **val loss 不能和第 1 个 adapter 横着比**。这条只算 assistant 段，Alpaca 那条算全序列，两者分母不同——数字大小没有可比性，只能各自看趋势。（若你的版本上 `eval_dataset` 与掩码冲突报错，直接去掉 `eval_dataset`，官方 notebook 本来就不带验证集。）
+
+#### 第 3 个 adapter：换数据
+
+第 3 个就在上面两条里选一条、**只换数据**，优先选能练"洗数据"的那个（README 心法：70% 时间在洗数据）：
+
+| 选法 | 怎么改 | 练到什么 |
+|---|---|---|
+| **自己的数据（推荐）** | 导出成 Alpaca 或 ShareGPT 的 JSONL，走 3.2 的 `prepare_datasets("data/xxx.jsonl")` | 真正的字段映射、去重、模板对齐 |
+| 换中文 ShareGPT 数据 | 只改 `DATASET`，仍走本节 Conversational | 一次同时变「语言 + 格式」两个变量（对比时不好归因） |
+| 换中文 Alpaca 数据 | 只改 3.2 的 `DEFAULT_DATASET = "shibing624/alpaca-zh"` | 语言变量，改动最小；但官方没有这个示例，属于自己判断 |
+
+> ⚠️ **每个 adapter 换一个 `OUT_DIR` / `FINAL_DIR` 名**，否则会覆盖上一个。三个 adapter 都只存 `-final` 目录（几十 MB），**GGUF 只给最后选中的那个做**。
 
 ---
 
@@ -756,6 +880,15 @@ ollama run qwen2.5-finetuned
 >
 > 💡 还有一个相关现象：Unsloth 导出时可能打印 `No Ollama template mapping found for model 'unsloth/Qwen2.5-7B'. Skipping Ollama Modelfile`——它**不会**自动生成 Modelfile。这不是错误，用上面这份手写的即可（base 模型的映射表里没有 Qwen2.5-7B 条目，所以它跳过）。
 
+> **⚠️ 上面这份 `TEMPLATE` 是「Alpaca 路线专用」的，不是所有 adapter 通用。** `TEMPLATE` 是训练格式的镜像，换了训练路线就得换它：
+>
+> | 训练时走的路线 | Modelfile 怎么写 |
+> |---|---|
+> | **3.2 / 4.1 的 Alpaca**（第 1 个 adapter） | 就用上面这份：`TEMPLATE` 三行 + 两条 `STOP` |
+> | **3.5 的 Conversational**（第 2 个 adapter） | **把整段 `TEMPLATE` 和两条 `STOP` 全删掉**。那条路线训练用的就是 Qwen 自带的 ChatML，而 GGUF 里内嵌的默认模板**正好是 ChatML**——默认已对齐，再手写反而错配 |
+>
+> 判断只有一条：**训练时 `text` 长什么样，推理时就得长什么样。** 拿不准就回 3.2 / 3.5 看你当时把 `text` 渲染成了什么。
+
 验证模板是否生效：**英文**提问（训练数据 `yahma/alpaca-cleaned` 是英文，中文属分布外），并留意输出**不会**自行续写下一轮 `### Instruction:`——出现续写就说明 `STOP` 没生效。
 
 > 💡 **省空间要点**：`ollama create` 会把 GGUF **复制**进 Ollama 自己的模型库（Windows 下在 `C:\Users\<用户名>\.ollama\models`），不是引用原文件。  
@@ -873,7 +1006,9 @@ ollama run qwen2.5-finetuned
 
 ## 完成检查清单（验收用，不是待办）
 
-> **验收记录**：2026-10-05 逐项核对，**10/10 全部达成**——阶段二（用 Unsloth 跑通 Qwen2.5 微调）验收通过。
+> **验收记录**：2026-10-05 逐项核对，**10/10 全部达成**——即 **阶段二 2a（用 Unsloth 跑通 1 个 Qwen2.5 微调）验收通过**。
+>
+> ⚠️ **它不等于 README 阶段二的完整验收**：README 要求「3 个不同数据集的 adapter」，目前 1/3，还差 2 个，见下方「阶段二 2b」。
 
 - [x] 跑通至少 1 个官方 Notebook（如 Llama 3.1 8B Alpaca）
 - [x] 云端环境可用（Kaggle：Unsloth 装好、Internet 已打开、**首格已执行 `%env CUDA_VISIBLE_DEVICES=0`**）
@@ -885,6 +1020,15 @@ ollama run qwen2.5-finetuned
 - [x] 下载到本地，用 Ollama 跑起来（Modelfile 必带 Alpaca 的 `TEMPLATE` + 两条 `STOP`，见 6.4）
 - [x] 对比 Unsloth 与原生 HuggingFace 的速度 / 显存差异
 - [x] 为下一步 LlamaFactory 学习做好准备
+
+### 阶段二 2b：补第 2、3 个 adapter（**当前未完成**）
+
+> 做法见 **3.5**。验收物是 **adapter 权重文件**（每个几十 MB），**不是 GGUF**——GGUF 只给最后选中的那个做，否则每个都要 4.7GB。
+
+- [x] 第 1 个：**Alpaca**（`yahma/alpaca-cleaned`，Base 基座）——已完成
+- [ ] 第 2 个：**Conversational**（`mlabonne/FineTome-100k`，**Instruct 基座** + `train_on_responses_only`，官方代码见 3.5）
+- [ ] 第 3 个：**换自己的数据**（CSV → Alpaca/ShareGPT JSONL → `prepare_datasets("data/xxx.jsonl")`，见 3.2）
+- [ ] 三个 adapter 各留一张实验记录（模板见 4.3），三张摆一起才算作品集
 
 ---
 
