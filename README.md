@@ -19,7 +19,7 @@
 | 阶段 | 核心动作 | 产出物 |
 |------|----------|--------|
 | 阶段一（原理） | 手敲《LoRA与QLoRA微调大语言模型完整指南.md》里的 LoRA 代码（逐行抄，不复制粘贴） | 能画出 LoRA 的原理推导草图，能用大白话讲清"为什么 QLoRA 能把 7B 模型塞进 8G 显存" |
-| 阶段二（纯代码） | 在 Unsloth 上跑通 Qwen2.5 微调（已完成 1 个），再补 2 个：按**官方两条数据路线**走 Alpaca → Conversational，第 3 个换自己的数据。做法与代码见《Unsloth微调实战指南.md》**3.5**；阿里天池这类外部数据走 3.2 的本地 JSONL 分支 | 至少 3 个不同风格的 Adapter 权重文件 |
+| 阶段二（纯代码） | 照官方 Notebook 跑通 Qwen2.5 微调（已完成），想练手就**换数据集只改 `load_dataset` 一行**再跑（见《Unsloth微调实战指南.md》第二节） | 跑通的 LoRA adapter（已导出 GGUF 并在本地 Ollama 部署） |
 | 阶段三（工业化） | 用 LlamaFactory 复现阶段二的结果（对照《ai-agents-from-zero》第 31 章），对比两者速度差异 | 理解工业化框架如何封装底层细节 |
 | 阶段四（评估部署） | 按《ai-agents-from-zero》第 32 章做单条验证 → 批量预测与评分 → 合并导出、独立加载 | 一份可复现的评测结果 |
 | 蒸馏实战 | 参考 LLM_Optimization，用蒸馏把 7B 模型的知识灌进 0.5B 小模型 | 一个能在笔记本 CPU 上跑起来的蒸馏小模型 |
@@ -65,16 +65,15 @@
 
 ## 本仓库代码文件
 
-**Unsloth 微调代码全部内嵌在《Unsloth微调实战指南.md》里**（仓库不再有独立的 `.py`）：
+**Unsloth 微调代码以官方 Notebook 为准**（指南第一节给链接），本地不保留 `.py`：
 
 | 用途 | 位置 |
 |------|------|
-| 环境验证 | 指南 2.4 |
-| 数据加载与划分（Hub / 本地 JSONL，自动识别 Alpaca / ShareGPT） | 指南 3.2 |
-| Qwen2.5 QLoRA 微调主代码 | 指南 4.1 |
-| 训练参数配置（含 8GB 显存优化） | 指南 5.1 |
-| 保存 LoRA adapter | 指南 6.1 |
-| 导出 GGUF（Ollama 部署） | 指南 6.2 |
+| 官方 Qwen2.5 (7B) Alpaca Notebook（照跑） | 指南 一 |
+| 换数据集（只改 `load_dataset` 一行） | 指南 二 |
+| Kaggle 单卡限制（`%env CUDA_VISIBLE_DEVICES=0`） | 指南 三 |
+| 导出 GGUF + HF 中转 + 本地 Ollama | 指南 四 |
+| 报错排查速查表 | 指南 五 |
 
 > 同条件性能基准（Unsloth vs 原生 HF，Qwen2.5-7B）的**安装格、基准代码、口径与结果表全在根目录《Unsloth与原生HuggingFace对照.md》第四节**——同样没有单独的 `.py`。
 
