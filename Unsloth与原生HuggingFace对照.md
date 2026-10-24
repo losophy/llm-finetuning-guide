@@ -65,7 +65,7 @@ model_q = get_peft_model(model_q, LoraConfig(
 
 ### 2.2 Unsloth 侧
 
-本节代码即 `Unsloth微调实战指南.md` 4.1 的代码块（代码已全部内嵌在该指南里，仓库不再有独立的 `.py`）。
+本节代码对应官方 Qwen2.5 (7B) Alpaca Notebook 里的 `load_model`（notebook 链接见《Unsloth微调实战指南.md》第一节）。
 
 ```python
 def load_model(model_name="unsloth/Qwen2.5-7B-bnb-4bit", max_seq_length=2048):
@@ -111,7 +111,7 @@ def configure_lora(model):
 
 **② `SFTTrainer` 部分两边一模一样。** 这说明此前踩的那批报错（`evaluation_strategy` → `eval_strategy`、`warmup_ratio` → `warmup_steps`、`tokenizer` → `processing_class`）**与 Unsloth 没有关系**，那是 TRL 1.12 的 API 更名——原生、Unsloth 两侧都得跟着改。
 
-> **附注**：两侧的数据模板不同——原生侧脚本用 `### Human / ### Assistant`（见 `lora_finetune_opt.py` 第 11–12 行），Unsloth 侧（指南 4.1 代码块）用 Alpaca 的 `### Instruction / ### Response`。**这是数据格式的选择差异，不是 Unsloth 带来的差异。**
+> **附注**：两侧的数据模板不同——原生侧脚本用 `### Human / ### Assistant`（见 `lora_finetune_opt.py` 第 11–12 行），Unsloth 侧（4.3 的 `format_prompt`）用 Alpaca 的 `### Instruction / ### Response`。**这是数据格式的选择差异，不是 Unsloth 带来的差异。**
 
 ---
 
@@ -162,7 +162,7 @@ HuggingFace 官方博客的原话：
 几条容易踩的：
 
 1. **不用 `unsloth/Qwen2.5-7B-bnb-4bit`。** 预量化权重和加载时量化可能不完全等价，会被质疑"权重来源不一致"。两侧都用官方 `Qwen/Qwen2.5-7B`。
-2. **`target_modules` 必须都是 7 个。** 指南 4.1 的代码块是 7 个、原生脚本是 4 个——直接拿那两份代码比，可训练参数量不同，耗时不可比。
+2. **`target_modules` 必须都是 7 个。** 4.3 的 Unsloth 侧是 7 个、原生脚本是 4 个——直接拿那两份代码比，可训练参数量不同，耗时不可比。
 3. **精度写死 fp16。** 别用 `torch.cuda.is_bf16_supported()` 自动判断，两个理由：① 新版 PyTorch 默认把"软件模拟"也算作支持，**T4 上会误报 `True`**（实测 torch 2.11.0+cu128 = `True`，实为 fp32 模拟、**慢数倍**）；② 换到 L4 / A100 两侧还会不一致。
 4. **原生侧不要手动装 Flash Attention 2**，用 PyTorch 默认的 SDPA 即可（T4 上装 FA2 麻烦，且会改变对比口径）。
 5. **梯度检查点两侧对称**：Unsloth 用 `use_gradient_checkpointing="unsloth"`，原生用 `gradient_checkpointing_enable()`（写在 `load_model()` 的 native 分支里）。这是被测量的差异本身，不算不公。**别图省事把它挪进共用的 `SFTConfig`**：那会让 TRL 调标准的 `gradient_checkpointing_enable()` 去覆盖 Unsloth 自己的 GC，等于动了被测对象。
@@ -299,7 +299,7 @@ def trainable_param_count(model):
 
 
 def format_prompt(sample):
-    """Alpaca 模板（与指南 4.1 代码块一致）"""
+    """Alpaca 短模板（本项目基准口径，不含官方 notebook 开头那句说明）"""
     if str(sample.get("input", "")).strip():
         return f"""### Instruction:
 {sample['instruction']}

@@ -1,6 +1,6 @@
 # Unsloth 微调实战指南
 
-> **照官方做，别自己加戏。** 官方 Qwen2.5 (7B) 微调教程只有一个 notebook，点开从上到下跑完，就是一次完整微调。
+> 官方 Qwen2.5 (7B) 微调教程是一个 notebook：点开、从上到下跑完，就是一次完整微调。
 
 ---
 
@@ -19,7 +19,7 @@ https://colab.research.google.com/github/unslothai/notebooks/blob/main/nb/Qwen2.
 3. **训练**（默认 `max_steps=60`，几分钟跑完）
 4. **推理测试**（训完当场问几句）
 
-跑完 = 完成一次官方微调。**没有第二个 notebook，没有"换 3 种数据集"这回事。**
+跑完 = 完成一次官方微调。
 
 > 官方 notebook 是 Colab 版。要在 **Kaggle** 上跑：`File → Import Notebook → GitHub`，把链接里的 `colab.research.google.com/github/` 换成 `github.com/`，再按下面「三、Kaggle 特有步骤」补一句单卡限制即可，其余不动。
 

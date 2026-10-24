@@ -31,7 +31,7 @@
 | 项目 | Stars | 核心技术 | 用法 |
 |------|-------|----------|------|
 | [machinelearningplus - LoRA & QLoRA（中文完整指南）](LoRA与QLoRA微调大语言模型完整指南.md) | — | LoRA/QLoRA 完整代码 | **入门必看**。本仓库含配套脚本（`llm-lora-qlora-finetuning-guide/`），可直接运行。逐行抄写代码，重点关注 `LoraConfig` 里的 `r`（秩）、`alpha`、`target_modules` 怎么影响显存。含内存计算、常见错误 |
-| [unslothai/unsloth](https://github.com/unslothai/unsloth) | 63K+ | LoRA/QLoRA 加速 | **纯代码主框架**。250+ Notebook 示例，必须手动处理 JSON 数据集、手动拆分训练/验证集——痛苦但有用。加速 2-5 倍、显存减半，消费级 GPU 可跑。云端跑法（Colab 或 Kaggle）、参数调优与本地 Ollama 部署见《Unsloth微调实战指南.md》 |
+| [unslothai/unsloth](https://github.com/unslothai/unsloth) | 63K+ | LoRA/QLoRA 加速 | **纯代码主框架**。官方示例 Notebook 在 [unslothai/notebooks](https://github.com/unslothai/notebooks)。加速 2-5 倍、显存减半，消费级 GPU 可跑。云端跑法（Colab 或 Kaggle）、单卡限制与本地 Ollama 部署见《Unsloth微调实战指南.md》 |
 
 ### 🔧 第二优先级：工业化框架 + 蒸馏
 
@@ -77,7 +77,7 @@
 
 > 同条件性能基准（Unsloth vs 原生 HF，Qwen2.5-7B）的**安装格、基准代码、口径与结果表全在根目录《Unsloth与原生HuggingFace对照.md》第四节**——同样没有单独的 `.py`。
 
-> **adapter 训完怎么验证有效**：同一基座「挂 vs 不挂 adapter」各跑同一批题，**逐字相同应远小于全部**——两组完全一致说明 adapter 没生效。这一步只需跑一次，不必做盲评。
+> **adapter 训完怎么验证有效**：同一基座「挂 vs 不挂 adapter」各跑同一批题，**逐字相同应远小于全部**——两组完全一致说明 adapter 没生效。
 
 ## 两个"隐形的雷"
 
